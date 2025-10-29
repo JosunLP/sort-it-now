@@ -166,6 +166,7 @@ impl OptimizerConfig {
     const HEIGHT_EPSILON_VAR: &'static str = "SORT_IT_NOW_PACKING_HEIGHT_EPSILON";
     const GENERAL_EPSILON_VAR: &'static str = "SORT_IT_NOW_PACKING_GENERAL_EPSILON";
     const BALANCE_RATIO_VAR: &'static str = "SORT_IT_NOW_PACKING_BALANCE_LIMIT_RATIO";
+    const FOOTPRINT_TOLERANCE_VAR: &'static str = "SORT_IT_NOW_PACKING_FOOTPRINT_TOLERANCE";
 
     fn from_env() -> Self {
         let mut packing = PackingConfig::default();
@@ -208,6 +209,14 @@ impl OptimizerConfig {
             |value| (0.0..=1.0).contains(&value),
             "muss zwischen 0 und 1 liegen",
             "Warnung: Angepasste Balance-Grenzen können zum Umkippen von Stapeln führen",
+        );
+
+        packing.footprint_cluster_tolerance = load_f64_with_warning(
+            Self::FOOTPRINT_TOLERANCE_VAR,
+            PackingConfig::DEFAULT_FOOTPRINT_CLUSTER_TOLERANCE,
+            |value| (0.0..=0.5).contains(&value),
+            "muss zwischen 0 und 0.5 liegen",
+            "Warnung: Angepasste Footprint-Gruppierung kann zu unerwarteten Platzierungen führen",
         );
 
         Self { packing }
