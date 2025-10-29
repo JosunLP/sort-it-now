@@ -212,6 +212,7 @@ impl OptimizerConfig {
         let footprint_cluster_tolerance = load_f64_with_warning(
             Self::FOOTPRINT_TOLERANCE_VAR,
             PackingConfig::DEFAULT_FOOTPRINT_CLUSTER_TOLERANCE,
+            // Values above 0.5 would group excessively dissimilar footprints, defeating the clustering purpose.
             |value| (0.0..=0.5).contains(&value),
             "muss zwischen 0 und 0.5 liegen",
             "Warnung: Angepasste Footprint-Gruppierung kann zu unerwarteten Platzierungen führen",

@@ -220,7 +220,7 @@ function updateStats(container, dims, visibleCount = null) {
   const summaryHtml = summary
     ? `
       <hr />
-      <p><strong>Diagnose (gesamt):</strong></p>
+      <p><strong>Diagnostik (gesamt):</strong></p>
       <p>Max. Ungleichgewicht: ${formatPercent(summary.max_imbalance_ratio)}</p>
       <p>Unterstützung Ø / min: ${formatPlainPercent(
         summary.average_support_percent
