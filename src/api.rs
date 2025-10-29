@@ -21,8 +21,8 @@ use tower_http::cors::{Any, CorsLayer};
 use crate::config::{ApiConfig, OptimizerConfig};
 use crate::model::{Box3D, ContainerBlueprint, ValidationError};
 use crate::optimizer::{
-    compute_container_diagnostics, pack_objects_with_config, pack_objects_with_progress,
-    ContainerDiagnostics, PackingConfig, PackingResult,
+    pack_objects_with_config, pack_objects_with_progress, ContainerDiagnostics,
+    PackingDiagnosticsSummary, PackingResult,
 };
 
 #[derive(Clone)]
@@ -89,6 +89,7 @@ pub struct PackResponse {
     pub results: Vec<PackedContainer>,
     pub unplaced: Vec<PackedUnplacedObject>,
     pub is_complete: bool,
+    pub diagnostics_summary: PackingDiagnosticsSummary,
 }
 
 /// Einzelner Container mit Metadaten und platzierten Objekten.
@@ -135,17 +136,23 @@ pub struct PackedUnplacedObject {
 
 impl PackResponse {
     /// Erstellt eine PackResponse aus einem PackingResult (DRY-Prinzip).
-    pub fn from_packing_result(result: PackingResult, config: &PackingConfig) -> Self {
-        let is_complete = result.is_complete();
-        let containers = result.containers;
-        let unplaced_entries = result.unplaced;
+    pub fn from_packing_result(result: PackingResult) -> Self {
+        let PackingResult {
+            containers,
+            unplaced,
+            container_diagnostics,
+            diagnostics_summary,
+        } = result;
+
+        let is_complete = unplaced.is_empty();
+        let unplaced_entries = unplaced;
 
         Self {
             results: containers
                 .into_iter()
+                .zip(container_diagnostics.into_iter())
                 .enumerate()
-                .map(|(i, cont)| {
-                    let diagnostics = compute_container_diagnostics(&cont, config);
+                .map(|(i, (cont, diagnostics))| {
                     let total_weight = cont.total_weight();
                     let placed_objects = cont
                         .placed
@@ -181,6 +188,7 @@ impl PackResponse {
                 })
                 .collect(),
             is_complete,
+            diagnostics_summary,
         }
     }
 }
@@ -295,7 +303,7 @@ async fn handle_pack(
         packing_result.unplaced_count()
     );
 
-    let response = PackResponse::from_packing_result(packing_result, &packing_config);
+    let response = PackResponse::from_packing_result(packing_result);
     (StatusCode::OK, Json(response)).into_response()
 }
 

@@ -10,6 +10,7 @@ let liveMode = false;
 let liveContainers = [];
 let liveUnplaced = [];
 let es = null;
+let liveDiagnosticsSummary = null;
 
 // Konfigurierbare Parameter
 let config = {
@@ -182,6 +183,50 @@ function updateStats(container, dims, visibleCount = null) {
     : `${liveMode ? 'Live-Container' : 'Container'} ${
         currentContainerIndex + 1
       }`;
+  const diagnostics = container.diagnostics ?? null;
+  const summary = liveMode
+    ? liveDiagnosticsSummary
+    : packingResults?.diagnostics_summary ?? null;
+
+  const formatPercent = (value, fractionDigits = 1) => {
+    if (!Number.isFinite(value)) return '—';
+    return `${(value * 100).toFixed(fractionDigits)}%`;
+  };
+
+  const formatPlainPercent = (value, fractionDigits = 1) => {
+    if (!Number.isFinite(value)) return '—';
+    return `${value.toFixed(fractionDigits)}%`;
+  };
+
+  const limitText = Number.isFinite(diagnostics?.balance_limit)
+    ? `${diagnostics.balance_limit.toFixed(1)} cm`
+    : '—';
+  const offsetText = Number.isFinite(diagnostics?.center_of_mass_offset)
+    ? `${diagnostics.center_of_mass_offset.toFixed(1)} cm`
+    : '—';
+
+  const diagnosticsHtml = diagnostics
+    ? `
+    <p><strong>Balance:</strong> ${formatPercent(
+      diagnostics.imbalance_ratio
+    )} (Limit ${limitText})</p>
+    <p><strong>Schwerpunkt-Abstand:</strong> ${offsetText}</p>
+    <p><strong>Unterstützung:</strong> Ø ${formatPlainPercent(
+      diagnostics.average_support_percent
+    )} · min ${formatPlainPercent(diagnostics.minimum_support_percent)}</p>
+  `
+    : '';
+
+  const summaryHtml = summary
+    ? `
+      <hr />
+      <p><strong>Diagnose (gesamt):</strong></p>
+      <p>Max. Ungleichgewicht: ${formatPercent(summary.max_imbalance_ratio)}</p>
+      <p>Unterstützung Ø / min: ${formatPlainPercent(
+        summary.average_support_percent
+      )} · ${formatPlainPercent(summary.worst_support_percent)}</p>
+    `
+    : '';
 
   document.getElementById('stats').innerHTML = `
     <h3>${containerTitle} / ${
@@ -203,6 +248,8 @@ function updateStats(container, dims, visibleCount = null) {
         ? `<p><strong>Nicht verpackt:</strong> ${unplacedCount}</p>`
         : ''
     }
+    ${diagnosticsHtml}
+    ${summaryHtml}
   `;
 }
 
@@ -575,6 +622,51 @@ function resolveContainerDims(container) {
   return [50, 50, 50];
 }
 
+function recomputeLiveDiagnosticsSummary() {
+  const diagnosticsList = liveContainers
+    .map((c) => c.diagnostics)
+    .filter((diag) => diag && typeof diag === 'object');
+
+  if (diagnosticsList.length === 0) {
+    liveDiagnosticsSummary = null;
+    return;
+  }
+
+  let maxImbalance = 0;
+  let worstSupport = 100;
+  let supportSum = 0;
+  let supportCount = 0;
+
+  diagnosticsList.forEach((diag) => {
+    if (Number.isFinite(diag.imbalance_ratio)) {
+      maxImbalance = Math.max(maxImbalance, diag.imbalance_ratio);
+    }
+    if (Number.isFinite(diag.minimum_support_percent)) {
+      worstSupport = Math.min(worstSupport, diag.minimum_support_percent);
+    }
+    const samples = Array.isArray(diag.support_samples)
+      ? diag.support_samples.length
+      : 0;
+    if (Number.isFinite(diag.average_support_percent)) {
+      if (samples > 0) {
+        supportSum += diag.average_support_percent * samples;
+        supportCount += samples;
+      } else {
+        supportSum += diag.average_support_percent;
+        supportCount += 1;
+      }
+    }
+  });
+
+  const averageSupport = supportCount > 0 ? supportSum / supportCount : 100;
+
+  liveDiagnosticsSummary = {
+    max_imbalance_ratio: maxImbalance,
+    worst_support_percent: worstSupport,
+    average_support_percent: averageSupport,
+  };
+}
+
 function focusCameraOnDims(dims) {
   controls.target.set(dims[0] / 2, dims[2] / 2, dims[1] / 2);
 }
@@ -693,6 +785,7 @@ function startLivePacking() {
   liveMode = true;
   liveContainers = [];
   liveUnplaced = [];
+  liveDiagnosticsSummary = null;
   currentContainerIndex = 0;
   updateNavigationButtons();
 
@@ -761,6 +854,7 @@ function handleLiveEvent(evt) {
         max_weight: evt.max_weight,
         label: evt.label ?? null,
         template_id: evt.template_id ?? null,
+        diagnostics: null,
       });
       currentContainerIndex = liveContainers.length - 1;
       visualizeContainer(liveContainers[currentContainerIndex], dims);
@@ -779,6 +873,7 @@ function handleLiveEvent(evt) {
           max_weight: evt.max_weight ?? null,
           label: evt.label ?? null,
           template_id: evt.template_id ?? null,
+          diagnostics: null,
         });
       }
       const cont = liveContainers[idx];
@@ -794,6 +889,21 @@ function handleLiveEvent(evt) {
         focusCameraOnDims(resolveContainerDims(cont));
       }
       updateNavigationButtons();
+      break;
+    }
+    case 'ContainerDiagnostics': {
+      const idx = evt.container_id - 1;
+      const diagnostics = evt.diagnostics ?? null;
+      if (idx >= 0 && idx < liveContainers.length && diagnostics) {
+        liveContainers[idx].diagnostics = diagnostics;
+        recomputeLiveDiagnosticsSummary();
+        if (idx === currentContainerIndex) {
+          updateStats(
+            liveContainers[idx],
+            resolveContainerDims(liveContainers[idx])
+          );
+        }
+      }
       break;
     }
     case 'ObjectRejected': {
@@ -812,6 +922,17 @@ function handleLiveEvent(evt) {
             liveUnplaced
               .map((u) => `Objekt ${u.id}: ${u.reason_text}`)
               .join('\n')
+        );
+      }
+      if (evt.diagnostics_summary) {
+        liveDiagnosticsSummary = evt.diagnostics_summary;
+      } else {
+        recomputeLiveDiagnosticsSummary();
+      }
+      if (liveContainers.length) {
+        updateStats(
+          liveContainers[currentContainerIndex],
+          resolveContainerDims(liveContainers[currentContainerIndex])
         );
       }
       break;

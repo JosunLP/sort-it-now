@@ -223,11 +223,31 @@ pub struct ContainerDiagnostics {
     pub support_samples: Vec<SupportDiagnostics>,
 }
 
+/// Zusammenfassung wichtiger Kennzahlen über alle Container hinweg.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct PackingDiagnosticsSummary {
+    pub max_imbalance_ratio: f64,
+    pub worst_support_percent: f64,
+    pub average_support_percent: f64,
+}
+
+impl Default for PackingDiagnosticsSummary {
+    fn default() -> Self {
+        Self {
+            max_imbalance_ratio: 0.0,
+            worst_support_percent: 100.0,
+            average_support_percent: 100.0,
+        }
+    }
+}
+
 /// Ergebnis der Verpackungsberechnung.
 #[derive(Clone, Debug)]
 pub struct PackingResult {
     pub containers: Vec<Container>,
     pub unplaced: Vec<UnplacedBox>,
+    pub container_diagnostics: Vec<ContainerDiagnostics>,
+    pub diagnostics_summary: PackingDiagnosticsSummary,
 }
 
 impl PackingResult {
@@ -262,6 +282,11 @@ impl PackingResult {
     /// Berechnet das Gesamtgewicht aller verpackten Objekte.
     pub fn total_packed_weight(&self) -> f64 {
         self.containers.iter().map(|c| c.total_weight()).sum()
+    }
+
+    /// Liefert die aggregierten Diagnosewerte.
+    pub fn diagnostics_summary(&self) -> &PackingDiagnosticsSummary {
+        &self.diagnostics_summary
     }
 }
 
@@ -395,6 +420,11 @@ pub enum PackEvent {
         dims: (f64, f64, f64),
         total_weight: f64,
     },
+    /// Aktualisierte Diagnostik eines Containers.
+    ContainerDiagnostics {
+        container_id: usize,
+        diagnostics: ContainerDiagnostics,
+    },
     /// Ein Objekt konnte nicht platziert werden.
     ObjectRejected {
         id: usize,
@@ -404,7 +434,11 @@ pub enum PackEvent {
         reason_text: String,
     },
     /// Packen abgeschlossen.
-    Finished { containers: usize, unplaced: usize },
+    Finished {
+        containers: usize,
+        unplaced: usize,
+        diagnostics_summary: PackingDiagnosticsSummary,
+    },
 }
 
 /// Verpackung mit benutzerdefinierter Konfiguration und Live-Progress Callback.
@@ -420,10 +454,13 @@ pub fn pack_objects_with_progress(
         on_event(&PackEvent::Finished {
             containers: 0,
             unplaced: 0,
+            diagnostics_summary: PackingDiagnosticsSummary::default(),
         });
         return PackingResult {
             containers: Vec::new(),
             unplaced: Vec::new(),
+            container_diagnostics: Vec::new(),
+            diagnostics_summary: PackingDiagnosticsSummary::default(),
         };
     }
 
@@ -445,10 +482,13 @@ pub fn pack_objects_with_progress(
         on_event(&PackEvent::Finished {
             containers: 0,
             unplaced: unplaced.len(),
+            diagnostics_summary: PackingDiagnosticsSummary::default(),
         });
         return PackingResult {
             containers: Vec::new(),
             unplaced,
+            container_diagnostics: Vec::new(),
+            diagnostics_summary: PackingDiagnosticsSummary::default(),
         };
     }
 
@@ -483,6 +523,7 @@ pub fn pack_objects_with_progress(
 
     let mut containers: Vec<Container> = Vec::new();
     let mut unplaced: Vec<UnplacedBox> = Vec::new();
+    let mut container_diagnostics: Vec<ContainerDiagnostics> = Vec::new();
 
     // Platziere jedes Objekt
     for obj in objects {
@@ -513,6 +554,23 @@ pub fn pack_objects_with_progress(
                 weight: containers[idx].placed.last().unwrap().object.weight,
                 dims: containers[idx].placed.last().unwrap().object.dims,
                 total_weight: total_w,
+            });
+            let diagnostics = compute_container_diagnostics(&containers[idx], &config);
+            if let Some(slot) = container_diagnostics.get_mut(idx) {
+                *slot = diagnostics.clone();
+            } else if idx == container_diagnostics.len() {
+                container_diagnostics.push(diagnostics.clone());
+            } else {
+                debug_assert!(
+                    false,
+                    "diagnostics vector out of sync with containers (idx = {}, len = {})",
+                    idx,
+                    container_diagnostics.len()
+                );
+            }
+            on_event(&PackEvent::ContainerDiagnostics {
+                container_id: idx + 1,
+                diagnostics,
             });
         } else {
             match templates.iter().position(|tpl| tpl.can_fit(&obj)) {
@@ -551,6 +609,15 @@ pub fn pack_objects_with_progress(
                                 dims: placed.object.dims,
                                 total_weight: total_w,
                             });
+                            let diagnostics = containers
+                                .last()
+                                .map(|c| compute_container_diagnostics(c, &config))
+                                .expect("missing container for diagnostics");
+                            container_diagnostics.push(diagnostics.clone());
+                            on_event(&PackEvent::ContainerDiagnostics {
+                                container_id: new_id,
+                                diagnostics,
+                            });
                         }
                         None => {
                             let reason = UnplacedReason::NoStablePosition;
@@ -586,13 +653,17 @@ pub fn pack_objects_with_progress(
         }
     }
 
+    let diagnostics_summary = summarize_diagnostics(container_diagnostics.iter());
     on_event(&PackEvent::Finished {
         containers: containers.len(),
         unplaced: unplaced.len(),
+        diagnostics_summary: diagnostics_summary.clone(),
     });
     PackingResult {
         containers,
         unplaced,
+        container_diagnostics,
+        diagnostics_summary,
     }
 }
 
@@ -1074,6 +1145,63 @@ pub fn compute_container_diagnostics(
     }
 }
 
+struct SummaryAccumulator {
+    max_imbalance_ratio: f64,
+    worst_support_percent: f64,
+    support_percent_sum: f64,
+    support_sample_count: usize,
+}
+
+impl SummaryAccumulator {
+    fn new() -> Self {
+        Self {
+            max_imbalance_ratio: 0.0,
+            worst_support_percent: 100.0,
+            support_percent_sum: 0.0,
+            support_sample_count: 0,
+        }
+    }
+
+    fn record(&mut self, diagnostics: &ContainerDiagnostics) {
+        self.max_imbalance_ratio = self.max_imbalance_ratio.max(diagnostics.imbalance_ratio);
+        self.worst_support_percent = self
+            .worst_support_percent
+            .min(diagnostics.minimum_support_percent);
+
+        let sample_count = diagnostics.support_samples.len();
+        if sample_count > 0 {
+            self.support_percent_sum += diagnostics.average_support_percent * sample_count as f64;
+            self.support_sample_count += sample_count;
+        }
+    }
+
+    fn finish(self) -> PackingDiagnosticsSummary {
+        let average_support_percent = if self.support_sample_count > 0 {
+            self.support_percent_sum / self.support_sample_count as f64
+        } else {
+            100.0
+        };
+
+        PackingDiagnosticsSummary {
+            max_imbalance_ratio: self.max_imbalance_ratio,
+            worst_support_percent: self.worst_support_percent,
+            average_support_percent,
+        }
+    }
+}
+
+/// Aggregiert Diagnosen über mehrere Container.
+pub fn summarize_diagnostics<'a, I>(diagnostics: I) -> PackingDiagnosticsSummary
+where
+    I: IntoIterator<Item = &'a ContainerDiagnostics>,
+{
+    let mut acc = SummaryAccumulator::new();
+    for diag in diagnostics {
+        acc.record(diag);
+    }
+    acc.finish()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1445,5 +1573,41 @@ mod tests {
 
         assert!(diagnostics.imbalance_ratio > 0.0);
         assert!(diagnostics.center_of_mass_offset > 0.0);
+
+        let summary = summarize_diagnostics(std::iter::once(&diagnostics));
+        assert!((summary.average_support_percent - 75.0).abs() < 1e-6);
+        assert!((summary.worst_support_percent - 50.0).abs() < 1e-6);
+        assert!((summary.max_imbalance_ratio - diagnostics.imbalance_ratio).abs() < 1e-6);
+    }
+
+    #[test]
+    fn progress_emits_diagnostics_events() {
+        let config = PackingConfig::default();
+        let objects = vec![
+            Box3D {
+                id: 1,
+                dims: (10.0, 10.0, 10.0),
+                weight: 8.0,
+            },
+            Box3D {
+                id: 2,
+                dims: (5.0, 5.0, 5.0),
+                weight: 3.0,
+            },
+        ];
+
+        let mut diagnostics_events = 0usize;
+        pack_objects_with_progress(
+            objects,
+            single_blueprint((20.0, 20.0, 30.0), 100.0),
+            config,
+            |evt| {
+                if matches!(evt, PackEvent::ContainerDiagnostics { .. }) {
+                    diagnostics_events += 1;
+                }
+            },
+        );
+
+        assert!(diagnostics_events >= 1);
     }
 }
