@@ -27,6 +27,8 @@ pub struct PackingConfig {
     pub general_epsilon: f64,
     /// Maximale erlaubte Abweichung des Schwerpunkts vom Mittelpunkt (als Ratio der Diagonale)
     pub balance_limit_ratio: f64,
+    /// Relative Toleranz bei der Vorgruppierung nach Grundfläche zur Reduktion von Backtracking
+    pub footprint_cluster_tolerance: f64,
 }
 
 impl PackingConfig {
@@ -35,6 +37,7 @@ impl PackingConfig {
     pub const DEFAULT_HEIGHT_EPSILON: f64 = 1e-3;
     pub const DEFAULT_GENERAL_EPSILON: f64 = 1e-6;
     pub const DEFAULT_BALANCE_LIMIT_RATIO: f64 = 0.45;
+    pub const DEFAULT_FOOTPRINT_CLUSTER_TOLERANCE: f64 = 0.15;
 
     /// Erstellt einen Builder für benutzerdefinierte Konfiguration.
     pub fn builder() -> PackingConfigBuilder {
@@ -50,6 +53,7 @@ impl Default for PackingConfig {
             height_epsilon: Self::DEFAULT_HEIGHT_EPSILON,
             general_epsilon: Self::DEFAULT_GENERAL_EPSILON,
             balance_limit_ratio: Self::DEFAULT_BALANCE_LIMIT_RATIO,
+            footprint_cluster_tolerance: Self::DEFAULT_FOOTPRINT_CLUSTER_TOLERANCE,
         }
     }
 }
@@ -99,9 +103,141 @@ impl PackingConfigBuilder {
         self
     }
 
+    /// Setzt die Toleranz für die Vorgruppierung basierend auf der Grundfläche.
+    pub fn footprint_cluster_tolerance(mut self, tolerance: f64) -> Self {
+        self.config.footprint_cluster_tolerance = tolerance;
+        self
+    }
+
     /// Erstellt die finale Konfiguration.
     pub fn build(self) -> PackingConfig {
         self.config
+    }
+}
+
+/// Abstrakte Strategien zur Gruppierung/Neuordnung von Objekten vor dem Packen.
+trait ObjectClusterStrategy {
+    fn reorder(&self, objects: Vec<Box3D>) -> Vec<Box3D>;
+}
+
+/// Gruppiert Objekte mit kompatibler Grundfläche, um Backtracking zu reduzieren.
+#[derive(Clone, Debug)]
+struct FootprintClusterStrategy {
+    tolerance: f64,
+}
+
+impl FootprintClusterStrategy {
+    fn new(tolerance: f64) -> Self {
+        Self { tolerance }
+    }
+
+    fn compatible(&self, a: (f64, f64), b: (f64, f64)) -> bool {
+        if self.tolerance <= 0.0 {
+            return false;
+        }
+
+        let width_close = self.relative_diff(a.0, b.0) <= self.tolerance;
+        let depth_close = self.relative_diff(a.1, b.1) <= self.tolerance;
+        width_close && depth_close
+    }
+
+    fn relative_diff(&self, a: f64, b: f64) -> f64 {
+        let denom = a.abs().max(b.abs()).max(1.0);
+        (a - b).abs() / denom
+    }
+}
+
+impl ObjectClusterStrategy for FootprintClusterStrategy {
+    fn reorder(&self, objects: Vec<Box3D>) -> Vec<Box3D> {
+        if self.tolerance <= 0.0 {
+            return objects;
+        }
+
+        let mut clusters: Vec<ObjectCluster> = Vec::new();
+        for object in objects.into_iter() {
+            let dims = (object.dims.0, object.dims.1);
+            if let Some(cluster) = clusters
+                .iter_mut()
+                .find(|cluster| self.compatible(cluster.representative, dims))
+            {
+                cluster.add(object);
+            } else {
+                clusters.push(ObjectCluster::new(object));
+            }
+        }
+
+        clusters
+            .into_iter()
+            .flat_map(ObjectCluster::into_members)
+            .collect()
+    }
+}
+
+#[derive(Clone, Debug)]
+struct ObjectCluster {
+    representative: (f64, f64),
+    members: Vec<Box3D>,
+}
+
+impl ObjectCluster {
+    fn new(object: Box3D) -> Self {
+        let dims = (object.dims.0, object.dims.1);
+        Self {
+            representative: dims,
+            members: vec![object],
+        }
+    }
+
+    fn add(&mut self, object: Box3D) {
+        let dims = (object.dims.0, object.dims.1);
+        let count = self.members.len() as f64;
+        let (rw, rd) = self.representative;
+        self.representative = (
+            (rw * count + dims.0) / (count + 1.0),
+            (rd * count + dims.1) / (count + 1.0),
+        );
+        self.members.push(object);
+    }
+
+    fn into_members(self) -> Vec<Box3D> {
+        self.members
+    }
+}
+
+/// Support-Kennzahlen pro Objekt.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct SupportDiagnostics {
+    pub object_id: usize,
+    pub support_percent: f64,
+    pub rests_on_floor: bool,
+}
+
+/// Diagnostische Kennzahlen pro Container für Monitoring.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct ContainerDiagnostics {
+    pub center_of_mass_offset: f64,
+    pub balance_limit: f64,
+    pub imbalance_ratio: f64,
+    pub average_support_percent: f64,
+    pub minimum_support_percent: f64,
+    pub support_samples: Vec<SupportDiagnostics>,
+}
+
+/// Zusammenfassung wichtiger Kennzahlen über alle Container hinweg.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct PackingDiagnosticsSummary {
+    pub max_imbalance_ratio: f64,
+    pub worst_support_percent: f64,
+    pub average_support_percent: f64,
+}
+
+impl Default for PackingDiagnosticsSummary {
+    fn default() -> Self {
+        Self {
+            max_imbalance_ratio: 0.0,
+            worst_support_percent: 100.0,
+            average_support_percent: 100.0,
+        }
     }
 }
 
@@ -110,6 +246,8 @@ impl PackingConfigBuilder {
 pub struct PackingResult {
     pub containers: Vec<Container>,
     pub unplaced: Vec<UnplacedBox>,
+    pub container_diagnostics: Vec<ContainerDiagnostics>,
+    pub diagnostics_summary: PackingDiagnosticsSummary,
 }
 
 impl PackingResult {
@@ -144,6 +282,11 @@ impl PackingResult {
     /// Berechnet das Gesamtgewicht aller verpackten Objekte.
     pub fn total_packed_weight(&self) -> f64 {
         self.containers.iter().map(|c| c.total_weight()).sum()
+    }
+
+    /// Liefert die aggregierten Diagnosewerte.
+    pub fn diagnostics_summary(&self) -> &PackingDiagnosticsSummary {
+        &self.diagnostics_summary
     }
 }
 
@@ -277,6 +420,11 @@ pub enum PackEvent {
         dims: (f64, f64, f64),
         total_weight: f64,
     },
+    /// Aktualisierte Diagnostik eines Containers.
+    ContainerDiagnostics {
+        container_id: usize,
+        diagnostics: ContainerDiagnostics,
+    },
     /// Ein Objekt konnte nicht platziert werden.
     ObjectRejected {
         id: usize,
@@ -286,7 +434,11 @@ pub enum PackEvent {
         reason_text: String,
     },
     /// Packen abgeschlossen.
-    Finished { containers: usize, unplaced: usize },
+    Finished {
+        containers: usize,
+        unplaced: usize,
+        diagnostics_summary: PackingDiagnosticsSummary,
+    },
 }
 
 /// Verpackung mit benutzerdefinierter Konfiguration und Live-Progress Callback.
@@ -302,10 +454,13 @@ pub fn pack_objects_with_progress(
         on_event(&PackEvent::Finished {
             containers: 0,
             unplaced: 0,
+            diagnostics_summary: PackingDiagnosticsSummary::default(),
         });
         return PackingResult {
             containers: Vec::new(),
             unplaced: Vec::new(),
+            container_diagnostics: Vec::new(),
+            diagnostics_summary: PackingDiagnosticsSummary::default(),
         };
     }
 
@@ -327,10 +482,13 @@ pub fn pack_objects_with_progress(
         on_event(&PackEvent::Finished {
             containers: 0,
             unplaced: unplaced.len(),
+            diagnostics_summary: PackingDiagnosticsSummary::default(),
         });
         return PackingResult {
             containers: Vec::new(),
             unplaced,
+            container_diagnostics: Vec::new(),
+            diagnostics_summary: PackingDiagnosticsSummary::default(),
         };
     }
 
@@ -360,8 +518,12 @@ pub fn pack_objects_with_progress(
             .then_with(|| a.id.cmp(&b.id))
     });
 
+    let cluster_strategy = FootprintClusterStrategy::new(config.footprint_cluster_tolerance);
+    objects = cluster_strategy.reorder(objects);
+
     let mut containers: Vec<Container> = Vec::new();
     let mut unplaced: Vec<UnplacedBox> = Vec::new();
+    let mut container_diagnostics: Vec<ContainerDiagnostics> = Vec::new();
 
     // Platziere jedes Objekt
     for obj in objects {
@@ -392,6 +554,23 @@ pub fn pack_objects_with_progress(
                 weight: containers[idx].placed.last().unwrap().object.weight,
                 dims: containers[idx].placed.last().unwrap().object.dims,
                 total_weight: total_w,
+            });
+            let diagnostics = compute_container_diagnostics(&containers[idx], &config);
+            if let Some(slot) = container_diagnostics.get_mut(idx) {
+                *slot = diagnostics.clone();
+            } else if idx == container_diagnostics.len() {
+                container_diagnostics.push(diagnostics.clone());
+            } else {
+                debug_assert!(
+                    false,
+                    "diagnostics vector out of sync with containers (idx = {}, len = {})",
+                    idx,
+                    container_diagnostics.len()
+                );
+            }
+            on_event(&PackEvent::ContainerDiagnostics {
+                container_id: idx + 1,
+                diagnostics,
             });
         } else {
             match templates.iter().position(|tpl| tpl.can_fit(&obj)) {
@@ -430,6 +609,15 @@ pub fn pack_objects_with_progress(
                                 dims: placed.object.dims,
                                 total_weight: total_w,
                             });
+                            let diagnostics = containers
+                                .last()
+                                .map(|c| compute_container_diagnostics(c, &config))
+                                .expect("missing container for diagnostics");
+                            container_diagnostics.push(diagnostics.clone());
+                            on_event(&PackEvent::ContainerDiagnostics {
+                                container_id: new_id,
+                                diagnostics,
+                            });
                         }
                         None => {
                             let reason = UnplacedReason::NoStablePosition;
@@ -465,13 +653,17 @@ pub fn pack_objects_with_progress(
         }
     }
 
+    let diagnostics_summary = summarize_diagnostics(container_diagnostics.iter());
     on_event(&PackEvent::Finished {
         containers: containers.len(),
         unplaced: unplaced.len(),
+        diagnostics_summary: diagnostics_summary.clone(),
     });
     PackingResult {
         containers,
         unplaced,
+        container_diagnostics,
+        diagnostics_summary,
     }
 }
 
@@ -664,31 +856,43 @@ fn supports_weight_correctly(b: &PlacedBox, cont: &Container, config: &PackingCo
 /// * `b` - Das zu prüfende platzierte Objekt
 /// * `cont` - Der Container
 /// * `config` - Konfigurationsparameter
+fn support_ratio_of(b: &PlacedBox, cont: &Container, config: &PackingConfig) -> f64 {
+    if b.position.2 <= config.height_epsilon {
+        return 1.0;
+    }
+
+    let (bx, by, bz) = b.position;
+    let (bw, bd, _) = b.object.dims;
+    let base_area = bw * bd;
+    if base_area <= config.general_epsilon {
+        return 0.0;
+    }
+
+    let mut support_area = 0.0;
+
+    for p in &cont.placed {
+        let support_surface_z = p.position.2 + p.object.dims.2;
+        if (bz - support_surface_z).abs() > config.height_epsilon {
+            continue;
+        }
+
+        let over_x = overlap_1d(bx, bx + bw, p.position.0, p.position.0 + p.object.dims.0);
+        let over_y = overlap_1d(by, by + bd, p.position.1, p.position.1 + p.object.dims.1);
+
+        if over_x > 0.0 && over_y > 0.0 {
+            support_area += over_x * over_y;
+        }
+    }
+
+    (support_area / base_area).clamp(0.0, 1.0)
+}
+
 fn has_sufficient_support(b: &PlacedBox, cont: &Container, config: &PackingConfig) -> bool {
     if b.position.2 <= config.height_epsilon {
         return true;
     }
 
-    let mut support_area = 0.0;
-    let (bx, by, bz) = b.position;
-    let (bw, bd, _) = b.object.dims;
-
-    for p in &cont.placed {
-        let over_x = overlap_1d(bx, bx + bw, p.position.0, p.position.0 + p.object.dims.0);
-        let over_y = overlap_1d(by, by + bd, p.position.1, p.position.1 + p.object.dims.1);
-        let diff_z = bz - (p.position.2 + p.object.dims.2);
-
-        if diff_z.abs() < config.height_epsilon && over_x > 0.0 && over_y > 0.0 {
-            support_area += over_x * over_y;
-        }
-    }
-
-    let base_area = bw * bd;
-    if base_area <= config.general_epsilon {
-        return false;
-    }
-
-    (support_area / base_area) >= config.support_ratio
+    support_ratio_of(b, cont, config) + config.general_epsilon >= config.support_ratio
 }
 
 /// Prüft, ob der Schwerpunkt des Objekts (Projektion auf XY) von der Auflagefläche getragen wird.
@@ -728,24 +932,27 @@ fn is_center_supported(b: &PlacedBox, cont: &Container, config: &PackingConfig) 
 /// * `cont` - Der Container
 /// * `new_box` - Das hinzuzufügende Objekt
 fn calculate_balance_after(cont: &Container, new_box: &PlacedBox) -> f64 {
-    let mut total_w = new_box.object.weight;
-    let mut x_c = (new_box.position.0 + new_box.object.dims.0 / 2.0) * new_box.object.weight;
-    let mut y_c = (new_box.position.1 + new_box.object.dims.1 / 2.0) * new_box.object.weight;
+    let new_point = (
+        new_box.position.0 + new_box.object.dims.0 / 2.0,
+        new_box.position.1 + new_box.object.dims.1 / 2.0,
+        new_box.object.weight,
+    );
 
-    for p in &cont.placed {
-        let w = p.object.weight;
-        total_w += w;
-        x_c += (p.position.0 + p.object.dims.0 / 2.0) * w;
-        y_c += (p.position.1 + p.object.dims.1 / 2.0) * w;
+    match compute_center_of_mass_xy(
+        cont.placed
+            .iter()
+            .map(|p| {
+                (
+                    p.position.0 + p.object.dims.0 / 2.0,
+                    p.position.1 + p.object.dims.1 / 2.0,
+                    p.object.weight,
+                )
+            })
+            .chain(std::iter::once(new_point)),
+    ) {
+        Some(cm) => distance_2d(cm, container_center_xy(cont)),
+        None => 0.0,
     }
-
-    let cm_x = x_c / total_w;
-    let cm_y = y_c / total_w;
-
-    let center_x = cont.dims.0 / 2.0;
-    let center_y = cont.dims.1 / 2.0;
-
-    ((cm_x - center_x).powi(2) + (cm_y - center_y).powi(2)).sqrt()
 }
 
 /// Bewertung einer Platzierungsposition.
@@ -839,6 +1046,160 @@ fn calculate_balance_limit(cont: &Container, config: &PackingConfig) -> f64 {
     let half_x = cont.dims.0 / 2.0;
     let half_y = cont.dims.1 / 2.0;
     (half_x.powi(2) + half_y.powi(2)).sqrt() * config.balance_limit_ratio
+}
+
+fn calculate_current_balance_offset(cont: &Container) -> f64 {
+    if cont.placed.is_empty() {
+        return 0.0;
+    }
+
+    match compute_center_of_mass_xy(cont.placed.iter().map(|p| {
+        (
+            p.position.0 + p.object.dims.0 / 2.0,
+            p.position.1 + p.object.dims.1 / 2.0,
+            p.object.weight,
+        )
+    })) {
+        Some(cm) => distance_2d(cm, container_center_xy(cont)),
+        None => 0.0,
+    }
+}
+
+fn container_center_xy(cont: &Container) -> (f64, f64) {
+    (cont.dims.0 / 2.0, cont.dims.1 / 2.0)
+}
+
+fn distance_2d(a: (f64, f64), b: (f64, f64)) -> f64 {
+    ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt()
+}
+
+fn compute_center_of_mass_xy<I>(points: I) -> Option<(f64, f64)>
+where
+    I: Iterator<Item = (f64, f64, f64)>,
+{
+    let mut total_w = 0.0;
+    let mut x_c = 0.0;
+    let mut y_c = 0.0;
+
+    for (x, y, w) in points {
+        total_w += w;
+        x_c += x * w;
+        y_c += y * w;
+    }
+
+    if total_w <= 0.0 {
+        None
+    } else {
+        Some((x_c / total_w, y_c / total_w))
+    }
+}
+
+/// Berechnet diagnostische Kennzahlen für einen Container.
+pub fn compute_container_diagnostics(
+    cont: &Container,
+    config: &PackingConfig,
+) -> ContainerDiagnostics {
+    let balance_limit = calculate_balance_limit(cont, config);
+    let center_offset = calculate_current_balance_offset(cont);
+
+    let imbalance_ratio = if balance_limit > config.general_epsilon {
+        center_offset / balance_limit
+    } else {
+        0.0
+    };
+
+    let mut support_samples = Vec::with_capacity(cont.placed.len());
+    let mut total_support = 0.0;
+    let mut min_support: f64 = 1.0;
+
+    for placed in &cont.placed {
+        let ratio = support_ratio_of(placed, cont, config);
+        total_support += ratio;
+        min_support = min_support.min(ratio);
+        support_samples.push(SupportDiagnostics {
+            object_id: placed.object.id,
+            support_percent: ratio * 100.0,
+            rests_on_floor: placed.position.2 <= config.height_epsilon,
+        });
+    }
+
+    let count = cont.placed.len() as f64;
+    let average_support_percent = if count > 0.0 {
+        (total_support / count) * 100.0
+    } else {
+        100.0
+    };
+    let minimum_support_percent = if cont.placed.is_empty() {
+        100.0
+    } else {
+        min_support * 100.0
+    };
+
+    ContainerDiagnostics {
+        center_of_mass_offset: center_offset,
+        balance_limit,
+        imbalance_ratio,
+        average_support_percent,
+        minimum_support_percent,
+        support_samples,
+    }
+}
+
+struct SummaryAccumulator {
+    max_imbalance_ratio: f64,
+    worst_support_percent: f64,
+    support_percent_sum: f64,
+    support_sample_count: usize,
+}
+
+impl SummaryAccumulator {
+    fn new() -> Self {
+        Self {
+            max_imbalance_ratio: 0.0,
+            worst_support_percent: 100.0,
+            support_percent_sum: 0.0,
+            support_sample_count: 0,
+        }
+    }
+
+    fn record(&mut self, diagnostics: &ContainerDiagnostics) {
+        self.max_imbalance_ratio = self.max_imbalance_ratio.max(diagnostics.imbalance_ratio);
+        self.worst_support_percent = self
+            .worst_support_percent
+            .min(diagnostics.minimum_support_percent);
+
+        let sample_count = diagnostics.support_samples.len();
+        if sample_count > 0 {
+            self.support_percent_sum += diagnostics.average_support_percent * sample_count as f64;
+            self.support_sample_count += sample_count;
+        }
+    }
+
+    fn finish(self) -> PackingDiagnosticsSummary {
+        let average_support_percent = if self.support_sample_count > 0 {
+            self.support_percent_sum / self.support_sample_count as f64
+        } else {
+            100.0
+        };
+
+        PackingDiagnosticsSummary {
+            max_imbalance_ratio: self.max_imbalance_ratio,
+            worst_support_percent: self.worst_support_percent,
+            average_support_percent,
+        }
+    }
+}
+
+/// Aggregiert Diagnosen über mehrere Container.
+pub fn summarize_diagnostics<'a, I>(diagnostics: I) -> PackingDiagnosticsSummary
+where
+    I: IntoIterator<Item = &'a ContainerDiagnostics>,
+{
+    let mut acc = SummaryAccumulator::new();
+    for diag in diagnostics {
+        acc.record(diag);
+    }
+    acc.finish()
 }
 
 #[cfg(test)]
@@ -1145,5 +1506,108 @@ mod tests {
             .find(|p| p.object.id == 4)
             .expect("zweit schwerstes Objekt fehlt");
         assert!(second.position.2 <= config.height_epsilon);
+    }
+
+    #[test]
+    fn footprint_cluster_groups_similar_dimensions() {
+        let strategy =
+            FootprintClusterStrategy::new(PackingConfig::DEFAULT_FOOTPRINT_CLUSTER_TOLERANCE);
+        let mut objects = vec![
+            Box3D {
+                id: 1,
+                dims: (20.0, 10.0, 10.0),
+                weight: 30.0,
+            },
+            Box3D {
+                id: 2,
+                dims: (20.4, 10.1, 9.5),
+                weight: 28.0,
+            },
+            Box3D {
+                id: 3,
+                dims: (5.0, 5.0, 5.0),
+                weight: 12.0,
+            },
+        ];
+
+        objects.sort_by(|a, b| b.weight.partial_cmp(&a.weight).unwrap());
+        let reordered = strategy.reorder(objects.clone());
+
+        assert_eq!(reordered.len(), objects.len());
+        assert_eq!(reordered[0].id, 1);
+        assert_eq!(reordered[1].id, 2);
+        assert_eq!(reordered[2].id, 3);
+    }
+
+    #[test]
+    fn diagnostics_capture_support_and_balance_metrics() {
+        let config = PackingConfig::default();
+        let mut container = Container::new((10.0, 10.0, 30.0), 200.0).unwrap();
+
+        container.placed.push(PlacedBox {
+            object: Box3D {
+                id: 1,
+                dims: (5.0, 10.0, 10.0),
+                weight: 8.0,
+            },
+            position: (0.0, 0.0, 0.0),
+        });
+
+        container.placed.push(PlacedBox {
+            object: Box3D {
+                id: 2,
+                dims: (10.0, 10.0, 8.0),
+                weight: 5.0,
+            },
+            position: (0.0, 0.0, 10.0),
+        });
+
+        let diagnostics = compute_container_diagnostics(&container, &config);
+
+        assert_eq!(diagnostics.support_samples.len(), 2);
+        let min_support = diagnostics.minimum_support_percent;
+        assert!((min_support - 50.0).abs() < 1e-6);
+
+        let avg_support = diagnostics.average_support_percent;
+        assert!((avg_support - 75.0).abs() < 1e-6);
+
+        assert!(diagnostics.imbalance_ratio > 0.0);
+        assert!(diagnostics.center_of_mass_offset > 0.0);
+
+        let summary = summarize_diagnostics(std::iter::once(&diagnostics));
+        assert!((summary.average_support_percent - 75.0).abs() < 1e-6);
+        assert!((summary.worst_support_percent - 50.0).abs() < 1e-6);
+        assert!((summary.max_imbalance_ratio - diagnostics.imbalance_ratio).abs() < 1e-6);
+    }
+
+    #[test]
+    fn progress_emits_diagnostics_events() {
+        let config = PackingConfig::default();
+        let objects = vec![
+            Box3D {
+                id: 1,
+                dims: (10.0, 10.0, 10.0),
+                weight: 8.0,
+            },
+            Box3D {
+                id: 2,
+                dims: (5.0, 5.0, 5.0),
+                weight: 3.0,
+            },
+        ];
+
+        let mut diagnostics_events = 0usize;
+        pack_objects_with_progress(
+            objects,
+            single_blueprint((20.0, 20.0, 30.0), 100.0),
+            config,
+            |evt| {
+                if matches!(evt, PackEvent::ContainerDiagnostics { .. }) {
+                    diagnostics_events += 1;
+                }
+            },
+        );
+
+        assert!(diagnostics_events >= 1);
     }
 }

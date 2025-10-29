@@ -20,7 +20,10 @@ use tower_http::cors::{Any, CorsLayer};
 
 use crate::config::{ApiConfig, OptimizerConfig};
 use crate::model::{Box3D, ContainerBlueprint, ValidationError};
-use crate::optimizer::{pack_objects_with_config, pack_objects_with_progress, PackingResult};
+use crate::optimizer::{
+    pack_objects_with_config, pack_objects_with_progress, ContainerDiagnostics,
+    PackingDiagnosticsSummary, PackingResult,
+};
 
 #[derive(Clone)]
 struct ApiState {
@@ -86,6 +89,7 @@ pub struct PackResponse {
     pub results: Vec<PackedContainer>,
     pub unplaced: Vec<PackedUnplacedObject>,
     pub is_complete: bool,
+    pub diagnostics_summary: PackingDiagnosticsSummary,
 }
 
 /// Einzelner Container mit Metadaten und platzierten Objekten.
@@ -103,6 +107,7 @@ pub struct PackedContainer {
     pub max_weight: f64,
     pub total_weight: f64,
     pub placed: Vec<PackedObject>,
+    pub diagnostics: ContainerDiagnostics,
 }
 
 /// Einzelnes platziertes Objekt in der Response.
@@ -132,22 +137,24 @@ pub struct PackedUnplacedObject {
 impl PackResponse {
     /// Erstellt eine PackResponse aus einem PackingResult (DRY-Prinzip).
     pub fn from_packing_result(result: PackingResult) -> Self {
-        let is_complete = result.is_complete();
-        let containers = result.containers;
-        let unplaced_entries = result.unplaced;
+        let PackingResult {
+            containers,
+            unplaced,
+            container_diagnostics,
+            diagnostics_summary,
+        } = result;
+
+        let is_complete = unplaced.is_empty();
+        let unplaced_entries = unplaced;
 
         Self {
             results: containers
                 .into_iter()
+                .zip(container_diagnostics.into_iter())
                 .enumerate()
-                .map(|(i, cont)| PackedContainer {
-                    id: i + 1,
-                    template_id: cont.template_id,
-                    label: cont.label.clone(),
-                    dims: cont.dims,
-                    max_weight: cont.max_weight,
-                    total_weight: cont.total_weight(),
-                    placed: cont
+                .map(|(i, (cont, diagnostics))| {
+                    let total_weight = cont.total_weight();
+                    let placed_objects = cont
                         .placed
                         .into_iter()
                         .map(|p| PackedObject {
@@ -156,7 +163,18 @@ impl PackResponse {
                             weight: p.object.weight,
                             dims: p.object.dims,
                         })
-                        .collect(),
+                        .collect();
+
+                    PackedContainer {
+                        id: i + 1,
+                        template_id: cont.template_id,
+                        label: cont.label.clone(),
+                        dims: cont.dims,
+                        max_weight: cont.max_weight,
+                        total_weight,
+                        placed: placed_objects,
+                        diagnostics,
+                    }
                 })
                 .collect(),
             unplaced: unplaced_entries
@@ -170,6 +188,7 @@ impl PackResponse {
                 })
                 .collect(),
             is_complete,
+            diagnostics_summary,
         }
     }
 }
