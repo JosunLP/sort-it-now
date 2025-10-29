@@ -1171,7 +1171,12 @@ impl SummaryAccumulator {
 
         let sample_count = diagnostics.support_samples.len();
         if sample_count > 0 {
-            self.support_percent_sum += diagnostics.average_support_percent * sample_count as f64;
+            let support_sum: f64 = diagnostics
+                .support_samples
+                .iter()
+                .map(|sample| sample.support_percent)
+                .sum();
+            self.support_percent_sum += support_sum;
             self.support_sample_count += sample_count;
         }
     }
