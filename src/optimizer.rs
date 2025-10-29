@@ -864,7 +864,8 @@ fn support_ratio_of(b: &PlacedBox, cont: &Container, config: &PackingConfig) -> 
     let (bx, by, bz) = b.position;
     let (bw, bd, _) = b.object.dims;
     let base_area = bw * bd;
-    if base_area <= config.general_epsilon {
+    let min_support_area = config.general_epsilon * config.general_epsilon;
+    if base_area <= min_support_area {
         return 0.0;
     }
 
@@ -892,7 +893,8 @@ fn has_sufficient_support(b: &PlacedBox, cont: &Container, config: &PackingConfi
         return true;
     }
 
-    support_ratio_of(b, cont, config) + config.general_epsilon >= config.support_ratio
+    let required_support = (config.support_ratio - config.general_epsilon).max(0.0);
+    support_ratio_of(b, cont, config) >= required_support
 }
 
 /// Prüft, ob der Schwerpunkt des Objekts (Projektion auf XY) von der Auflagefläche getragen wird.

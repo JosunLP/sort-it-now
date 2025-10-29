@@ -37,6 +37,7 @@ struct ApiState {
 
 static OPENAPI_DOC: OnceLock<utoipa::openapi::OpenApi> = OnceLock::new();
 
+// SRI hashes verified against https://unpkg.com/swagger-ui-dist@5.17.14/ on 2025-10-29.
 const SWAGGER_UI_HTML: &str = r##"<!DOCTYPE html>
 <html lang="en">
     <head>
