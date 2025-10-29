@@ -7,27 +7,27 @@ use axum::extract::rejection::JsonRejection;
 use axum::extract::{Json, State};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::{
-    http::{header, StatusCode, Uri},
+    Router,
+    http::{StatusCode, Uri, header},
     response::{Html, IntoResponse, Response},
     routing::{get, post},
-    Router,
 };
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
-#[cfg_attr(not(test), allow(unused_imports))]
+#[allow(unused_imports)]
 use serde_json::json;
 use std::sync::OnceLock;
 use tokio::sync::mpsc;
-use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
+use tokio_stream::wrappers::ReceiverStream;
 use tower_http::cors::{Any, CorsLayer};
 use utoipa::{OpenApi, ToSchema};
 
 use crate::config::{ApiConfig, OptimizerConfig};
-use crate::model::{Box3D, ContainerBlueprint, ValidationError};
+use crate::model::{Box3D, Container, ContainerBlueprint, ValidationError};
 use crate::optimizer::{
-    pack_objects_with_config, pack_objects_with_progress, ContainerDiagnostics,
-    PackingDiagnosticsSummary, PackingResult, SupportDiagnostics,
+    ContainerDiagnostics, PackingDiagnosticsSummary, PackingResult, SupportDiagnostics,
+    pack_objects_with_config, pack_objects_with_progress,
 };
 
 #[derive(Clone)]
@@ -121,26 +121,58 @@ pub struct PackRequest {
     pub objects: Vec<Box3D>,
 }
 
+#[derive(Debug)]
+struct ValidatedPackRequest {
+    containers: Vec<ContainerBlueprint>,
+    objects: Vec<Box3D>,
+}
+
+impl ValidatedPackRequest {
+    fn container_count(&self) -> usize {
+        self.containers.len()
+    }
+
+    fn object_count(&self) -> usize {
+        self.objects.len()
+    }
+
+    fn into_parts(self) -> (Vec<Box3D>, Vec<ContainerBlueprint>) {
+        (self.objects, self.containers)
+    }
+}
+
+#[derive(Debug)]
+enum PackRequestValidationError {
+    MissingContainers,
+    InvalidContainer(ValidationError),
+    InvalidObject(ValidationError),
+}
+
 impl PackRequest {
-    /// Validiert die Request-Daten.
-    pub fn validate(&self) -> Result<(), ValidationError> {
+    fn into_validated(self) -> Result<ValidatedPackRequest, PackRequestValidationError> {
         if self.containers.is_empty() {
-            return Err(ValidationError::InvalidConfiguration(
-                "Mindestens ein Verpackungstyp muss angegeben werden".to_string(),
-            ));
+            return Err(PackRequestValidationError::MissingContainers);
         }
 
-        // Validiere Container-Typen
-        for (idx, cont) in self.containers.iter().enumerate() {
-            ContainerBlueprint::new(idx, cont.name.clone(), cont.dims, cont.max_weight)?;
-        }
+        let containers = self
+            .containers
+            .into_iter()
+            .enumerate()
+            .map(|(idx, spec)| spec.into_blueprint(idx))
+            .collect::<Result<Vec<_>, ValidationError>>()
+            .map_err(PackRequestValidationError::InvalidContainer)?;
 
-        // Validiere alle Objekte
-        for obj in &self.objects {
-            Box3D::new(obj.id, obj.dims, obj.weight)?;
-        }
+        let objects = self
+            .objects
+            .into_iter()
+            .map(|obj| Box3D::new(obj.id, obj.dims, obj.weight))
+            .collect::<Result<Vec<_>, ValidationError>>()
+            .map_err(PackRequestValidationError::InvalidObject)?;
 
-        Ok(())
+        Ok(ValidatedPackRequest {
+            containers,
+            objects,
+        })
     }
 }
 
@@ -249,6 +281,28 @@ fn container_config_error(details: impl Into<String>) -> Response {
     )
 }
 
+fn parse_pack_request(
+    payload: Result<Json<PackRequest>, JsonRejection>,
+) -> Result<ValidatedPackRequest, Response> {
+    let Json(payload) = match payload {
+        Ok(payload) => payload,
+        Err(err) => return Err(json_deserialize_error(err)),
+    };
+
+    match payload.into_validated() {
+        Ok(validated) => Ok(validated),
+        Err(PackRequestValidationError::MissingContainers) => Err(validation_error(
+            "Mindestens ein Verpackungstyp muss angegeben werden",
+        )),
+        Err(PackRequestValidationError::InvalidContainer(err)) => {
+            Err(container_config_error(err.to_string()))
+        }
+        Err(PackRequestValidationError::InvalidObject(err)) => {
+            Err(validation_error(err.to_string()))
+        }
+    }
+}
+
 impl PackResponse {
     /// Erstellt eine PackResponse aus einem PackingResult (DRY-Prinzip).
     pub fn from_packing_result(result: PackingResult) -> Self {
@@ -268,9 +322,16 @@ impl PackResponse {
                 .zip(container_diagnostics.into_iter())
                 .enumerate()
                 .map(|(i, (cont, diagnostics))| {
-                    let total_weight = cont.total_weight();
-                    let placed_objects = cont
-                        .placed
+                    let Container {
+                        dims,
+                        max_weight,
+                        placed,
+                        template_id,
+                        label,
+                    } = cont;
+
+                    let total_weight = placed.iter().map(|b| b.object.weight).sum();
+                    let placed_objects = placed
                         .into_iter()
                         .map(|p| PackedObject {
                             id: p.object.id,
@@ -282,10 +343,10 @@ impl PackResponse {
 
                     PackedContainer {
                         id: i + 1,
-                        template_id: cont.template_id,
-                        label: cont.label.clone(),
-                        dims: cont.dims,
-                        max_weight: cont.max_weight,
+                        template_id,
+                        label,
+                        dims,
+                        max_weight,
                         total_weight,
                         placed: placed_objects,
                         diagnostics,
@@ -412,36 +473,18 @@ async fn handle_pack(
     State(state): State<ApiState>,
     payload: Result<Json<PackRequest>, JsonRejection>,
 ) -> impl IntoResponse {
-    let Json(payload) = match payload {
-        Ok(payload) => payload,
-        Err(err) => return json_deserialize_error(err),
+    let request = match parse_pack_request(payload) {
+        Ok(request) => request,
+        Err(response) => return response,
     };
 
-    // Validiere Eingabedaten
-    if let Err(e) = payload.validate() {
-        return validation_error(e.to_string());
-    }
-
-    let PackRequest {
-        containers,
-        objects,
-    } = payload;
-    let container_blueprints = match containers
-        .into_iter()
-        .enumerate()
-        .map(|(idx, spec)| spec.into_blueprint(idx))
-        .collect::<Result<Vec<_>, ValidationError>>()
-    {
-        Ok(list) => list,
-        Err(e) => {
-            return container_config_error(e.to_string());
-        }
-    };
+    let object_count = request.object_count();
+    let container_count = request.container_count();
+    let (objects, container_blueprints) = request.into_parts();
 
     println!(
         "📥 Neue Pack-Anfrage: {} Objekte, {} Verpackungstypen",
-        objects.len(),
-        container_blueprints.len()
+        object_count, container_count
     );
     let packing_config = state.optimizer_config.packing_config();
     let packing_result = pack_objects_with_config(objects, container_blueprints, packing_config);
@@ -482,31 +525,12 @@ async fn handle_pack_stream(
     State(state): State<ApiState>,
     payload: Result<Json<PackRequest>, JsonRejection>,
 ) -> impl IntoResponse {
-    let Json(payload) = match payload {
-        Ok(payload) => payload,
-        Err(err) => return json_deserialize_error(err),
+    let request = match parse_pack_request(payload) {
+        Ok(request) => request,
+        Err(response) => return response,
     };
 
-    // Validiere Eingabedaten
-    if let Err(e) = payload.validate() {
-        return validation_error(e.to_string());
-    }
-
-    let PackRequest {
-        containers,
-        objects,
-    } = payload;
-    let container_blueprints = match containers
-        .into_iter()
-        .enumerate()
-        .map(|(idx, spec)| spec.into_blueprint(idx))
-        .collect::<Result<Vec<_>, ValidationError>>()
-    {
-        Ok(list) => list,
-        Err(e) => {
-            return container_config_error(e.to_string());
-        }
-    };
+    let (objects, container_blueprints) = request.into_parts();
 
     let (tx, rx) = mpsc::channel::<String>(32);
 
@@ -561,4 +585,40 @@ async fn serve_openapi_json(State(_state): State<ApiState>) -> impl IntoResponse
 
 async fn serve_openapi_ui(State(_state): State<ApiState>) -> impl IntoResponse {
     Html(SWAGGER_UI_HTML)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn openapi_doc_lists_expected_paths() {
+        let doc = openapi_doc();
+        let paths = &doc.paths.paths;
+        assert!(
+            paths.contains_key("/pack"),
+            "OpenAPI-Dokumentation fehlt der /pack Pfad"
+        );
+        assert!(
+            paths.contains_key("/pack_stream"),
+            "OpenAPI-Dokumentation fehlt der /pack_stream Pfad"
+        );
+    }
+
+    #[test]
+    fn openapi_doc_contains_key_schemas() {
+        let doc = openapi_doc();
+        let components = doc
+            .components
+            .as_ref()
+            .expect("OpenAPI-Dokumentation enthält keine Components");
+        let schemas = &components.schemas;
+        for name in ["PackRequest", "PackResponse", "ErrorResponse"] {
+            assert!(
+                schemas.contains_key(name),
+                "Erwartetes Schema '{}' fehlt im OpenAPI-Spec",
+                name
+            );
+        }
+    }
 }
