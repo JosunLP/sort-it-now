@@ -1132,7 +1132,7 @@ pub fn compute_container_diagnostics(
     let minimum_support_percent = if cont.placed.is_empty() {
         100.0
     } else {
-        (min_support.min(1.0)) * 100.0
+        min_support * 100.0
     };
 
     ContainerDiagnostics {

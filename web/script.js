@@ -645,16 +645,19 @@ function recomputeLiveDiagnosticsSummary() {
       worstSupport = Math.min(worstSupport, diag.minimum_support_percent);
     }
     const samples = Array.isArray(diag.support_samples)
-      ? diag.support_samples.length
-      : 0;
-    if (Number.isFinite(diag.average_support_percent)) {
-      if (samples > 0) {
-        supportSum += diag.average_support_percent * samples;
-        supportCount += samples;
-      } else {
-        supportSum += diag.average_support_percent;
+      ? diag.support_samples.filter((sample) =>
+          Number.isFinite(sample?.support_percent)
+        )
+      : [];
+
+    if (samples.length > 0) {
+      samples.forEach((sample) => {
+        supportSum += sample.support_percent;
         supportCount += 1;
-      }
+      });
+    } else if (Number.isFinite(diag.average_support_percent)) {
+      supportSum += diag.average_support_percent;
+      supportCount += 1;
     }
   });
 
