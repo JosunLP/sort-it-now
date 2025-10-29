@@ -10,11 +10,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use utoipa::ToSchema;
 
-#[allow(dead_code)]
-fn json_macro_guard() {
-    let _ = json!(null);
-}
-
 /// Validierungsfehler für Objektdaten.
 #[derive(Debug, Clone)]
 pub enum ValidationError {

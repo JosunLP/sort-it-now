@@ -30,11 +30,6 @@ use crate::optimizer::{
     PackingDiagnosticsSummary, PackingResult, SupportDiagnostics,
 };
 
-#[allow(dead_code)]
-fn json_macro_guard() {
-    let _ = json!(null);
-}
-
 #[derive(Clone)]
 struct ApiState {
     optimizer_config: OptimizerConfig,
