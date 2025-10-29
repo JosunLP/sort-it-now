@@ -14,6 +14,7 @@ Eine intelligente 3D-Verpackungsoptimierung mit interaktiver Visualisierung.
 - **Automatische Multi-Container-Verwaltung**
 - **Umfassende Unit-Tests**
 - **REST-API** mit JSON-Kommunikation
+- **OpenAPI & Swagger UI** mit live Dokumentation unter `/docs`
 - **OOP-Prinzipien** mit DRY-Architektur
 - **Vollständig dokumentierter Code** (Rust-Docstrings)
 
@@ -50,17 +51,7 @@ Der Server läuft auf `http://localhost:8080`
 
 ### Frontend öffnen
 
-Öffne `web/index.html` in einem Browser oder starte einen lokalen Webserver:
-
-```bash
-# Python 3
-python3 -m http.server 8000 --directory web
-
-# Node.js
-npx http-server web -p 8000
-```
-
-Dann öffne: `http://localhost:8000`
+Der Web-Client wird automatisch vom Rust-Backend ausgeliefert. Rufe nach dem Start einfach `http://localhost:8080/` im Browser auf.
 
 Im Browser:
 
@@ -92,6 +83,11 @@ Beim Start prüft der Dienst im Hintergrund die neuesten GitHub-Releases (`Josun
 - Repo/Owner sowie Timeout lassen sich über `SORT_IT_NOW_GITHUB_OWNER`, `SORT_IT_NOW_GITHUB_REPO` und `SORT_IT_NOW_HTTP_TIMEOUT_SECS` konfigurieren – Standardwerte greifen automatisch, falls keine `.env` vorhanden ist.
 
 ## 📊 API-Endpunkte
+
+### OpenAPI & Swagger UI
+
+- `GET /docs` liefert eine interaktive Swagger UI mit Subresource-Integrity-geschützten Assets.
+- `GET /docs/openapi.json` stellt das OpenAPI-Schema (v3) bereit und kann z. B. für Code-Generatoren genutzt werden.
 
 ### POST /pack
 

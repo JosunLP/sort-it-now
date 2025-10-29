@@ -1,5 +1,5 @@
-use reqwest::header::HeaderMap;
 use reqwest::StatusCode;
+use reqwest::header::HeaderMap;
 use serde::Deserialize;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -467,8 +467,7 @@ fn http_timeout() -> Duration {
             } else {
                 eprintln!(
                     "⚠️ Konnte SORT_IT_NOW_HTTP_TIMEOUT_SECS ('{}') nicht parsen. Verwende Standardtimeout {}s.",
-                    trimmed,
-                    DEFAULT_TIMEOUT_SECS
+                    trimmed, DEFAULT_TIMEOUT_SECS
                 );
                 Duration::from_secs(DEFAULT_TIMEOUT_SECS)
             }
@@ -741,8 +740,8 @@ async fn copy_readme_if_present(bundle_dir: &Path, install_dir: &Path) {
 
 #[cfg(target_os = "windows")]
 fn ensure_windows_path(install_dir: &Path) -> Result<bool, std::io::Error> {
-    use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_WRITE};
     use winreg::RegKey;
+    use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_WRITE};
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let env = hkcu.open_subkey_with_flags("Environment", KEY_READ | KEY_WRITE)?;

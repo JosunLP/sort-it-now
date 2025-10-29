@@ -6,6 +6,9 @@
 //! - `Container`: Der Verpackungsbehälter mit Kapazitätsgrenzen
 
 use serde::{Deserialize, Serialize};
+#[allow(unused_imports)]
+use serde_json::json;
+use utoipa::ToSchema;
 
 /// Validierungsfehler für Objektdaten.
 #[derive(Debug, Clone)]
@@ -35,9 +38,10 @@ impl std::error::Error for ValidationError {}
 /// * `id` - Eindeutige Identifikationsnummer des Objekts
 /// * `dims` - Dimensionen (Breite, Tiefe, Höhe) in Einheiten
 /// * `weight` - Gewicht des Objekts in kg
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct Box3D {
     pub id: usize,
+    #[schema(value_type = [f64; 3], example = json!([30.0, 40.0, 20.0]))]
     pub dims: (f64, f64, f64),
     pub weight: f64,
 }

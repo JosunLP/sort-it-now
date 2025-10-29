@@ -1,8 +1,8 @@
 {
   "name": "sort-it-now",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "",
-  "license": "MIT",
+  "license": "LicenseRef-NCSL-1.0",
   "author": "",
   "scripts": {
     "test": "cargo test",

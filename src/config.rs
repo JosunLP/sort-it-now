@@ -166,11 +166,10 @@ impl OptimizerConfig {
     const HEIGHT_EPSILON_VAR: &'static str = "SORT_IT_NOW_PACKING_HEIGHT_EPSILON";
     const GENERAL_EPSILON_VAR: &'static str = "SORT_IT_NOW_PACKING_GENERAL_EPSILON";
     const BALANCE_RATIO_VAR: &'static str = "SORT_IT_NOW_PACKING_BALANCE_LIMIT_RATIO";
+    const FOOTPRINT_TOLERANCE_VAR: &'static str = "SORT_IT_NOW_PACKING_FOOTPRINT_TOLERANCE";
 
     fn from_env() -> Self {
-        let mut packing = PackingConfig::default();
-
-        packing.grid_step = load_f64_with_warning(
+        let grid_step = load_f64_with_warning(
             Self::GRID_STEP_VAR,
             PackingConfig::DEFAULT_GRID_STEP,
             |value| value > 0.0,
@@ -178,7 +177,7 @@ impl OptimizerConfig {
             "Warnung: Angepasste Raster-Schrittweite kann die Pack-Stabilität beeinträchtigen",
         );
 
-        packing.support_ratio = load_f64_with_warning(
+        let support_ratio = load_f64_with_warning(
             Self::SUPPORT_RATIO_VAR,
             PackingConfig::DEFAULT_SUPPORT_RATIO,
             |value| (0.0..=1.0).contains(&value),
@@ -186,7 +185,7 @@ impl OptimizerConfig {
             "Warnung: Angepasste Mindestauflage kann zu instabilen Stapeln führen",
         );
 
-        packing.height_epsilon = load_f64_with_warning(
+        let height_epsilon = load_f64_with_warning(
             Self::HEIGHT_EPSILON_VAR,
             PackingConfig::DEFAULT_HEIGHT_EPSILON,
             |value| value > 0.0,
@@ -194,7 +193,7 @@ impl OptimizerConfig {
             "Warnung: Angepasste Höhen-Toleranz kann unerwartete Platzierungen verursachen",
         );
 
-        packing.general_epsilon = load_f64_with_warning(
+        let general_epsilon = load_f64_with_warning(
             Self::GENERAL_EPSILON_VAR,
             PackingConfig::DEFAULT_GENERAL_EPSILON,
             |value| value > 0.0,
@@ -202,13 +201,31 @@ impl OptimizerConfig {
             "Warnung: Angepasste Toleranzen können numerische Instabilitäten hervorrufen",
         );
 
-        packing.balance_limit_ratio = load_f64_with_warning(
+        let balance_limit_ratio = load_f64_with_warning(
             Self::BALANCE_RATIO_VAR,
             PackingConfig::DEFAULT_BALANCE_LIMIT_RATIO,
             |value| (0.0..=1.0).contains(&value),
             "muss zwischen 0 und 1 liegen",
             "Warnung: Angepasste Balance-Grenzen können zum Umkippen von Stapeln führen",
         );
+
+        let footprint_cluster_tolerance = load_f64_with_warning(
+            Self::FOOTPRINT_TOLERANCE_VAR,
+            PackingConfig::DEFAULT_FOOTPRINT_CLUSTER_TOLERANCE,
+            // Values above 0.5 would group excessively dissimilar footprints, defeating the clustering purpose.
+            |value| (0.0..=0.5).contains(&value),
+            "muss zwischen 0 und 0.5 liegen",
+            "Warnung: Angepasste Footprint-Gruppierung kann zu unerwarteten Platzierungen führen",
+        );
+
+        let packing = PackingConfig::builder()
+            .grid_step(grid_step)
+            .support_ratio(support_ratio)
+            .height_epsilon(height_epsilon)
+            .general_epsilon(general_epsilon)
+            .balance_limit_ratio(balance_limit_ratio)
+            .footprint_cluster_tolerance(footprint_cluster_tolerance)
+            .build();
 
         Self { packing }
     }

@@ -1,7 +1,8 @@
 [package]
 name = "sort_it_now"
-version = "0.1.0"
-edition = "2021"
+version = "1.0.0"
+edition = "2024"
+license = "LicenseRef-NCSL-1.0"
 
 [dependencies]
 axum = "0.7"
@@ -21,6 +22,7 @@ tar = "0.4"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
 sha2 = "0.10"
 dotenvy = "0.15"
+utoipa = { version = "5.4", features = ["axum_extras"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
