@@ -89,7 +89,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${{ matrix.language }}" == "rust" ]]; then
-            cargo build --locked --all-targets
+            cargo build --locked --release
           fi
 
       - name: Perform CodeQL Analysis
