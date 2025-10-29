@@ -117,6 +117,14 @@ impl PackingConfigBuilder {
 }
 
 /// Abstrakte Strategien zur Gruppierung/Neuordnung von Objekten vor dem Packen.
+///
+/// Diese interne Trait definiert die Schnittstelle für Strategien, die die Reihenfolge
+/// (und ggf. Auswahl) von Objekten vor dem Packvorgang beeinflussen. Implementierungen
+/// können die Reihenfolge der Objekte ändern, Gruppen bilden oder Objekte filtern, um
+/// die Effizienz des Packens zu verbessern. Es wird garantiert, dass die Rückgabe
+/// eine (ggf. gefilterte) Teilmenge der Eingabe ist; Objekte können entfernt, aber
+/// nicht modifiziert werden. Die Trait ist absichtlich privat, da sie nur für interne
+/// Optimierungsstrategien gedacht ist und keine stabile API garantiert.
 trait ObjectClusterStrategy {
     fn reorder(&self, objects: Vec<Box3D>) -> Vec<Box3D>;
 }
