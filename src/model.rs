@@ -6,7 +6,7 @@
 //! - `Container`: Der Verpackungsbehälter mit Kapazitätsgrenzen
 
 use serde::{Deserialize, Serialize};
-#[cfg_attr(not(test), allow(unused_imports))]
+#[allow(unused_imports)]
 use serde_json::json;
 use utoipa::ToSchema;
 
