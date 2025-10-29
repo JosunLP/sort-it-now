@@ -6,9 +6,14 @@
 //! - `Container`: Der Verpackungsbehälter mit Kapazitätsgrenzen
 
 use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
+#[cfg_attr(not(test), allow(unused_imports))]
 use serde_json::json;
 use utoipa::ToSchema;
+
+#[allow(dead_code)]
+fn json_macro_guard() {
+    let _ = json!(null);
+}
 
 /// Validierungsfehler für Objektdaten.
 #[derive(Debug, Clone)]

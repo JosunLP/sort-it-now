@@ -14,7 +14,7 @@ use axum::{
 };
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
+#[cfg_attr(not(test), allow(unused_imports))]
 use serde_json::json;
 use std::sync::OnceLock;
 use tokio::sync::mpsc;
@@ -30,6 +30,11 @@ use crate::optimizer::{
     PackingDiagnosticsSummary, PackingResult, SupportDiagnostics,
 };
 
+#[allow(dead_code)]
+fn json_macro_guard() {
+    let _ = json!(null);
+}
+
 #[derive(Clone)]
 struct ApiState {
     optimizer_config: OptimizerConfig,
@@ -42,12 +47,25 @@ const SWAGGER_UI_HTML: &str = r##"<!DOCTYPE html>
     <head>
         <meta charset="utf-8" />
         <title>sort-it-now API Docs</title>
-        <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui.css" />
+        <link
+            rel="stylesheet"
+            href="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui.css"
+            integrity="sha384-wxLW6kwyHktdDGr6Pv1zgm/VGJh99lfUbzSn6HNHBENZlCN7W602k9VkGdxuFvPn"
+            crossorigin="anonymous"
+        />
     </head>
     <body>
         <div id="swagger-ui"></div>
-        <script src="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui-bundle.js"></script>
-        <script src="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui-standalone-preset.js"></script>
+        <script
+            src="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui-bundle.js"
+            integrity="sha384-wmyclcVGX/WhUkdkATwhaK1X1JtiNrr2EoYJ+diV3vj4v6OC5yCeSu+yW13SYJep"
+            crossorigin="anonymous"
+        ></script>
+        <script
+            src="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui-standalone-preset.js"
+            integrity="sha384-2YH8WDRaj7V2OqU/trsmzSagmk/E2SutiCsGkdgoQwC9pNUJV1u/141DHB6jgs8t"
+            crossorigin="anonymous"
+        ></script>
         <script>
             window.onload = function () {
                 const ui = SwaggerUIBundle({
