@@ -562,8 +562,7 @@ pub fn pack_objects_with_progress(
             } else if idx == container_diagnostics.len() {
                 container_diagnostics.push(diagnostics.clone());
             } else {
-                debug_assert!(
-                    false,
+                panic!(
                     "diagnostics vector out of sync with containers (idx = {}, len = {})",
                     idx,
                     container_diagnostics.len()
