@@ -2,7 +2,7 @@
   "name": "sort-it-now",
   "version": "1.0.0",
   "description": "",
-  "license": "NCSL-1.0",
+  "license": "LicenseRef-NCSL-1.0",
   "author": "",
   "scripts": {
     "test": "cargo test",
