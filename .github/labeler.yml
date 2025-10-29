@@ -1,0 +1,14 @@
+# Add labels to pull requests based on modified file paths
+rust:
+  - 'src/**/*.rs'
+  - 'Cargo.toml'
+web:
+  - 'web/**'
+scripts:
+  - 'scripts/**'
+config:
+  - '.github/workflows/**'
+  - 'package.json'
+documentation:
+  - 'README.md'
+  - 'CONCEPT.md'
