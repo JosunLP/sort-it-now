@@ -3,6 +3,7 @@
 //! Bietet HTTP-Endpunkte zur Kommunikation mit dem Frontend.
 //! Verwendet Axum als Web-Framework und unterstützt CORS.
 
+use axum::extract::rejection::JsonRejection;
 use axum::extract::{Json, State};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::{
@@ -13,21 +14,56 @@ use axum::{
 };
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
+#[allow(unused_imports)]
+use serde_json::json;
+use std::sync::OnceLock;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
 use tower_http::cors::{Any, CorsLayer};
+use utoipa::{OpenApi, ToSchema};
 
 use crate::config::{ApiConfig, OptimizerConfig};
 use crate::model::{Box3D, ContainerBlueprint, ValidationError};
 use crate::optimizer::{
     pack_objects_with_config, pack_objects_with_progress, ContainerDiagnostics,
-    PackingDiagnosticsSummary, PackingResult,
+    PackingDiagnosticsSummary, PackingResult, SupportDiagnostics,
 };
 
 #[derive(Clone)]
 struct ApiState {
     optimizer_config: OptimizerConfig,
+}
+
+static OPENAPI_DOC: OnceLock<utoipa::openapi::OpenApi> = OnceLock::new();
+
+const SWAGGER_UI_HTML: &str = r##"<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <title>sort-it-now API Docs</title>
+        <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui.css" />
+    </head>
+    <body>
+        <div id="swagger-ui"></div>
+        <script src="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui-bundle.js"></script>
+        <script src="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui-standalone-preset.js"></script>
+        <script>
+            window.onload = function () {
+                const ui = SwaggerUIBundle({
+                    url: "/docs/openapi.json",
+                    dom_id: "#swagger-ui",
+                    presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+                    layout: "StandaloneLayout",
+                });
+                window.ui = ui;
+            };
+        </script>
+    </body>
+    </html>"##;
+
+fn openapi_doc() -> &'static utoipa::openapi::OpenApi {
+    OPENAPI_DOC.get_or_init(ApiDoc::openapi)
 }
 
 /// Embedded Web Assets (HTML, CSS, JS)
@@ -38,9 +74,10 @@ struct WebAssets;
 /// Request-Struktur für den Packing-Endpunkt.
 ///
 /// `containers` enthält die möglichen Verpackungstypen, die kombiniert werden dürfen.
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, ToSchema)]
 pub struct ContainerRequest {
     pub name: Option<String>,
+    #[schema(value_type = [f64; 3], example = json!([120.0, 100.0, 80.0]))]
     pub dims: (f64, f64, f64),
     pub max_weight: f64,
 }
@@ -51,7 +88,21 @@ impl ContainerRequest {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
+#[schema(
+    example = json!({
+        "containers": [
+            {
+                "name": "Standardkiste",
+                "dims": [120.0, 100.0, 80.0],
+                "max_weight": 500.0
+            }
+        ],
+        "objects": [
+            { "id": 1, "dims": [30.0, 40.0, 20.0], "weight": 5.0 }
+        ]
+    })
+)]
 pub struct PackRequest {
     pub containers: Vec<ContainerRequest>,
     pub objects: Vec<Box3D>,
@@ -84,7 +135,7 @@ impl PackRequest {
 ///
 /// # Felder
 /// * `results` - Vector von Containern mit platzierten Objekten
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct PackResponse {
     pub results: Vec<PackedContainer>,
     pub unplaced: Vec<PackedUnplacedObject>,
@@ -98,11 +149,12 @@ pub struct PackResponse {
 /// * `id` - Container-Nummer (1-basiert)
 /// * `total_weight` - Gesamtgewicht aller Objekte im Container
 /// * `placed` - Liste der platzierten Objekte mit Positionen
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct PackedContainer {
     pub id: usize,
     pub template_id: Option<usize>,
     pub label: Option<String>,
+    #[schema(value_type = [f64; 3], example = json!([120.0, 100.0, 80.0]))]
     pub dims: (f64, f64, f64),
     pub max_weight: f64,
     pub total_weight: f64,
@@ -117,21 +169,71 @@ pub struct PackedContainer {
 /// * `pos` - Position (x, y, z) im Container
 /// * `weight` - Gewicht in kg
 /// * `dims` - Dimensionen (Breite, Tiefe, Höhe)
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct PackedObject {
     pub id: usize,
+    #[schema(value_type = [f64; 3], example = json!([0.0, 0.0, 0.0]))]
     pub pos: (f64, f64, f64),
     pub weight: f64,
+    #[schema(value_type = [f64; 3], example = json!([30.0, 40.0, 20.0]))]
     pub dims: (f64, f64, f64),
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct PackedUnplacedObject {
     pub id: usize,
     pub weight: f64,
+    #[schema(value_type = [f64; 3], example = json!([35.0, 45.0, 25.0]))]
     pub dims: (f64, f64, f64),
     pub reason_code: String,
     pub reason: String,
+}
+
+#[derive(Serialize, ToSchema)]
+struct ErrorResponse {
+    error: String,
+    details: String,
+}
+
+impl ErrorResponse {
+    fn new(error: impl Into<String>, details: impl Into<String>) -> Self {
+        Self {
+            error: error.into(),
+            details: details.into(),
+        }
+    }
+}
+
+fn error_response(
+    status: StatusCode,
+    error: impl Into<String>,
+    details: impl Into<String>,
+) -> Response {
+    (status, Json(ErrorResponse::new(error, details))).into_response()
+}
+
+fn json_deserialize_error(err: JsonRejection) -> Response {
+    error_response(
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "Ungültige JSON-Daten",
+        err.to_string(),
+    )
+}
+
+fn validation_error(details: impl Into<String>) -> Response {
+    error_response(
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "Ungültige Eingabedaten",
+        details,
+    )
+}
+
+fn container_config_error(details: impl Into<String>) -> Response {
+    error_response(
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "Ungültige Container-Konfiguration",
+        details,
+    )
 }
 
 impl PackResponse {
@@ -193,6 +295,28 @@ impl PackResponse {
     }
 }
 
+#[derive(OpenApi)]
+#[openapi(
+    paths(handle_pack, handle_pack_stream),
+    components(
+        schemas(
+            PackRequest,
+            ContainerRequest,
+            PackResponse,
+            PackedContainer,
+            PackedObject,
+            PackedUnplacedObject,
+            ErrorResponse,
+            Box3D,
+            ContainerDiagnostics,
+            SupportDiagnostics,
+            PackingDiagnosticsSummary
+        )
+    ),
+    tags((name = "packing", description = "Endpunkte zur Verpackungsoptimierung"))
+)]
+struct ApiDoc;
+
 /// Startet den API-Server auf Port 8080.
 ///
 /// Konfiguriert CORS für Cross-Origin-Requests vom Frontend.
@@ -209,6 +333,9 @@ pub async fn start_api_server(config: ApiConfig, optimizer_config: OptimizerConf
         // API-Endpunkte
         .route("/pack", post(handle_pack))
         .route("/pack_stream", post(handle_pack_stream))
+        // API-Dokumentation
+        .route("/docs/openapi.json", get(serve_openapi_json))
+        .route("/docs", get(serve_openapi_ui))
         // Web-UI (embedded)
         .route("/", get(serve_index))
         .route("/*path", get(serve_static))
@@ -235,6 +362,9 @@ pub async fn start_api_server(config: ApiConfig, optimizer_config: OptimizerConf
     println!("📦 API-Endpunkte:");
     println!("   - POST /pack");
     println!("   - POST /pack_stream");
+    println!("📑 Dokumentation:");
+    println!("   - GET /docs");
+    println!("   - GET /docs/openapi.json");
     println!("🌐 Web-UI: http://{}:{}", display_host, config.port());
 
     if let Err(err) = axum::serve(listener, app).await {
@@ -251,20 +381,32 @@ pub async fn start_api_server(config: ApiConfig, optimizer_config: OptimizerConf
 ///
 /// # Rückgabewert
 /// JSON-Response mit allen benötigten Containern und platzierten Objekten
+#[utoipa::path(
+    post,
+    path = "/pack",
+    request_body = PackRequest,
+    responses(
+        (status = 200, description = "Erfolgreiche Verpackung der Objekte", body = PackResponse),
+        (
+            status = UNPROCESSABLE_ENTITY,
+            description = "Ungültige Anfrage oder Container-Konfiguration",
+            body = ErrorResponse
+        )
+    ),
+    tag = "packing"
+)]
 async fn handle_pack(
     State(state): State<ApiState>,
-    Json(payload): Json<PackRequest>,
+    payload: Result<Json<PackRequest>, JsonRejection>,
 ) -> impl IntoResponse {
+    let Json(payload) = match payload {
+        Ok(payload) => payload,
+        Err(err) => return json_deserialize_error(err),
+    };
+
     // Validiere Eingabedaten
     if let Err(e) = payload.validate() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "Ungültige Eingabedaten",
-                "details": e.to_string()
-            })),
-        )
-            .into_response();
+        return validation_error(e.to_string());
     }
 
     let PackRequest {
@@ -279,14 +421,7 @@ async fn handle_pack(
     {
         Ok(list) => list,
         Err(e) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({
-                    "error": "Ungültige Container-Konfiguration",
-                    "details": e.to_string()
-                })),
-            )
-                .into_response();
+            return container_config_error(e.to_string());
         }
     };
 
@@ -311,20 +446,37 @@ async fn handle_pack(
 ///
 /// Streamt die Pack-Events in Echtzeit als Server-Sent Events (text/event-stream).
 /// Das Frontend kann die Schritte live visualisieren, ohne auf das Gesamtergebnis zu warten.
+#[utoipa::path(
+    post,
+    path = "/pack_stream",
+    request_body = PackRequest,
+    responses(
+        (
+            status = 200,
+            description = "Streamt Pack-Events in Echtzeit",
+            content_type = "text/event-stream",
+            body = String
+        ),
+        (
+            status = UNPROCESSABLE_ENTITY,
+            description = "Ungültige Anfrage oder Container-Konfiguration",
+            body = ErrorResponse
+        )
+    ),
+    tag = "packing"
+)]
 async fn handle_pack_stream(
     State(state): State<ApiState>,
-    Json(payload): Json<PackRequest>,
+    payload: Result<Json<PackRequest>, JsonRejection>,
 ) -> impl IntoResponse {
+    let Json(payload) = match payload {
+        Ok(payload) => payload,
+        Err(err) => return json_deserialize_error(err),
+    };
+
     // Validiere Eingabedaten
     if let Err(e) = payload.validate() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "Ungültige Eingabedaten",
-                "details": e.to_string()
-            })),
-        )
-            .into_response();
+        return validation_error(e.to_string());
     }
 
     let PackRequest {
@@ -339,14 +491,7 @@ async fn handle_pack_stream(
     {
         Ok(list) => list,
         Err(e) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({
-                    "error": "Ungültige Container-Konfiguration",
-                    "details": e.to_string()
-                })),
-            )
-                .into_response();
+            return container_config_error(e.to_string());
         }
     };
 
@@ -395,4 +540,12 @@ async fn serve_static(uri: Uri) -> Response {
         }
         None => (StatusCode::NOT_FOUND, "404 Not Found").into_response(),
     }
+}
+
+async fn serve_openapi_json(State(_state): State<ApiState>) -> impl IntoResponse {
+    Json(openapi_doc())
+}
+
+async fn serve_openapi_ui(State(_state): State<ApiState>) -> impl IntoResponse {
+    Html(SWAGGER_UI_HTML)
 }

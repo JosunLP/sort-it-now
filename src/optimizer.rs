@@ -11,6 +11,7 @@ use std::cmp::Ordering;
 
 use crate::geometry::{intersects, overlap_1d, point_inside};
 use crate::model::{Box3D, Container, ContainerBlueprint, PlacedBox};
+use utoipa::ToSchema;
 
 /// Konfiguration für den Packing-Algorithmus.
 ///
@@ -205,7 +206,7 @@ impl ObjectCluster {
 }
 
 /// Support-Kennzahlen pro Objekt.
-#[derive(Clone, Debug, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize, ToSchema)]
 pub struct SupportDiagnostics {
     pub object_id: usize,
     pub support_percent: f64,
@@ -213,7 +214,7 @@ pub struct SupportDiagnostics {
 }
 
 /// Diagnostische Kennzahlen pro Container für Monitoring.
-#[derive(Clone, Debug, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize, ToSchema)]
 pub struct ContainerDiagnostics {
     pub center_of_mass_offset: f64,
     pub balance_limit: f64,
@@ -224,7 +225,7 @@ pub struct ContainerDiagnostics {
 }
 
 /// Zusammenfassung wichtiger Kennzahlen über alle Container hinweg.
-#[derive(Clone, Debug, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize, ToSchema)]
 pub struct PackingDiagnosticsSummary {
     pub max_imbalance_ratio: f64,
     pub worst_support_percent: f64,
