@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sort-it-now 3D Visualisierung</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background: #0a0a0a;
+        color: #efefef;
+        overflow: hidden;
+      }
+
+      #container {
+        width: 100vw;
+        height: 100vh;
+        position: relative;
+      }
+
+      #ui-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: 10;
+      }
+
+      #stats {
+        position: absolute;
+        top: 20px;
+        left: 20px;
+        background: rgba(0, 0, 0, 0.8);
+        padding: 20px;
+        border-radius: 8px;
+        border: 2px solid #00aaff;
+        min-width: 280px;
+        pointer-events: auto;
+        box-shadow: 0 4px 20px rgba(0, 170, 255, 0.3);
+      }
+
+      #stats h3 {
+        color: #00aaff;
+        margin-bottom: 15px;
+        font-size: 1.2em;
+        border-bottom: 1px solid #00aaff;
+        padding-bottom: 8px;
+      }
+
+      #stats p {
+        margin: 8px 0;
+        font-size: 0.95em;
+        line-height: 1.5;
+      }
+
+      #stats strong {
+        color: #ffcc00;
+      }
+
+      #controls {
+        position: absolute;
+        bottom: 30px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0, 0, 0, 0.8);
+        padding: 20px;
+        border-radius: 8px;
+        border: 2px solid #00aaff;
+        display: flex;
+        gap: 15px;
+        align-items: center;
+        pointer-events: auto;
+        box-shadow: 0 4px 20px rgba(0, 170, 255, 0.3);
+      }
+
+      button {
+        background: linear-gradient(135deg, #00aaff, #0088cc);
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 16px;
+        font-weight: bold;
+        transition: all 0.3s ease;
+        box-shadow: 0 2px 8px rgba(0, 170, 255, 0.4);
+      }
+
+      button:hover:not(:disabled) {
+        background: linear-gradient(135deg, #00ccff, #00aadd);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 170, 255, 0.6);
+      }
+
+      button:active:not(:disabled) {
+        transform: translateY(0);
+      }
+
+      button:disabled {
+        background: #444;
+        cursor: not-allowed;
+        opacity: 0.5;
+        box-shadow: none;
+      }
+
+      button.primary {
+        background: linear-gradient(135deg, #ff5555, #cc3333);
+      }
+
+      button.primary:hover:not(:disabled) {
+        background: linear-gradient(135deg, #ff7777, #dd4444);
+      }
+
+      button.animate {
+        background: linear-gradient(135deg, #55ff55, #33cc33);
+      }
+
+      button.animate:hover:not(:disabled) {
+        background: linear-gradient(135deg, #77ff77, #44dd44);
+      }
+
+      .separator {
+        width: 1px;
+        height: 40px;
+        background: #00aaff;
+      }
+
+      #help {
+        position: absolute;
+        top: 20px;
+        right: 20px;
+        background: rgba(0, 0, 0, 0.8);
+        padding: 15px;
+        border-radius: 8px;
+        border: 2px solid #00aaff;
+        pointer-events: auto;
+        max-width: 300px;
+      }
+
+      #help h4 {
+        color: #00aaff;
+        margin-bottom: 10px;
+      }
+
+      #help ul {
+        list-style: none;
+        padding: 0;
+      }
+
+      #help li {
+        margin: 5px 0;
+        font-size: 0.9em;
+      }
+
+      #help li:before {
+        content: '▸ ';
+        color: #ffcc00;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.6;
+        }
+      }
+
+      .loading {
+        animation: pulse 1.5s ease-in-out infinite;
+      }
+
+      /* Modal Styles */
+      .modal {
+        display: none;
+        position: fixed;
+        z-index: 1000;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.8);
+        pointer-events: auto;
+      }
+
+      .modal-content {
+        background: linear-gradient(135deg, #1a1a1a, #2a2a2a);
+        margin: 5% auto;
+        padding: 30px;
+        border: 2px solid #00aaff;
+        border-radius: 12px;
+        width: 90%;
+        max-width: 600px;
+        max-height: 80vh;
+        overflow-y: auto;
+        box-shadow: 0 8px 32px rgba(0, 170, 255, 0.5);
+      }
+
+      .modal-content h2 {
+        color: #00aaff;
+        margin-bottom: 20px;
+        border-bottom: 2px solid #00aaff;
+        padding-bottom: 10px;
+      }
+
+      .close {
+        color: #aaa;
+        float: right;
+        font-size: 28px;
+        font-weight: bold;
+        cursor: pointer;
+        line-height: 20px;
+      }
+
+      .close:hover {
+        color: #fff;
+      }
+
+      .form-group {
+        margin-bottom: 20px;
+      }
+
+      .form-group label {
+        display: block;
+        color: #00aaff;
+        margin-bottom: 8px;
+        font-weight: bold;
+      }
+
+      .form-group input {
+        width: 100%;
+        padding: 10px;
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid #00aaff;
+        border-radius: 6px;
+        color: #fff;
+        font-size: 14px;
+      }
+
+      .form-row {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+      }
+
+      .object-item {
+        background: rgba(0, 170, 255, 0.1);
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 15px;
+        border: 1px solid #00aaff;
+      }
+
+      .object-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+      }
+
+      .object-header h4 {
+        color: #ffcc00;
+        margin: 0;
+      }
+
+      .btn-remove {
+        background: #ff5555;
+        padding: 5px 10px;
+        font-size: 12px;
+      }
+
+      .btn-add {
+        background: linear-gradient(135deg, #55ff55, #33cc33);
+        width: 100%;
+        margin-top: 10px;
+      }
+
+      .config-btn {
+        background: linear-gradient(135deg, #ffcc00, #ff9900);
+      }
+
+      .config-btn:hover:not(:disabled) {
+        background: linear-gradient(135deg, #ffdd22, #ffaa00);
+      }
+
+      .modal-content h3 {
+        color: #ffcc00;
+        margin-bottom: 15px;
+      }
+
+      .modal-content hr {
+        border-color: #00aaff;
+        margin: 20px 0;
+      }
+
+      #saveConfigBtn {
+        width: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="container"></div>
+
+    <div id="ui-overlay">
+      <div id="stats">
+        <h3>Statistiken</h3>
+        <p><strong>Objekte:</strong> 0 / 0</p>
+        <p><strong>Gewicht:</strong> 0.00 kg</p>
+        <p><strong>Auslastung:</strong> 0%</p>
+        <p><strong>Schwerpunkt:</strong> (0, 0, 0)</p>
+      </div>
+
+      <div id="controls">
+        <button id="configBtn" class="config-btn">⚙️ Konfiguration</button>
+        <div class="separator"></div>
+        <button id="runPacking" class="primary">🚀 Pack (Batch)</button>
+        <button id="runPackingLive" class="animate">📡 Pack (Live)</button>
+        <div class="separator"></div>
+        <button id="prevContainer" disabled>◄ Vorheriger</button>
+        <button id="nextContainer" disabled>Nächster ►</button>
+        <div class="separator"></div>
+        <button id="animateBtn" class="animate" disabled>
+          ▶ Animation starten
+        </button>
+      </div>
+
+      <div id="help">
+        <h4>🎮 Steuerung</h4>
+        <ul>
+          <li>Linke Maustaste: Kamera drehen</li>
+          <li>Rechte Maustaste: Kamera verschieben</li>
+          <li>Mausrad: Zoom</li>
+          <li>Navigation: Container wechseln</li>
+          <li>Animation: Schrittweise Platzierung</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Konfigurations-Modal -->
+    <div id="configModal" class="modal">
+      <div class="modal-content">
+        <span class="close">&times;</span>
+        <h2>⚙️ Verpackungs-Konfiguration</h2>
+
+        <h3>🧱 Verpackungstypen</h3>
+        <div id="containerTypesList"></div>
+
+        <button class="btn-add" id="addContainerTypeBtn">
+          ➕ Verpackungstyp hinzufügen
+        </button>
+
+        <hr />
+
+        <h3>📦 Test-Objekte</h3>
+        <div id="objectsList"></div>
+
+        <button class="btn-add" id="addObjectBtn">➕ Objekt hinzufügen</button>
+
+        <hr />
+
+        <button id="saveConfigBtn">💾 Konfiguration speichern</button>
+      </div>
+    </div>
+
+    <script type="module" src="./script.js"></script>
+  </body>
+</html>

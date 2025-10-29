@@ -1,0 +1,14 @@
+{
+  "name": "sort-it-now",
+  "version": "0.1.0",
+  "description": "",
+  "license": "MIT",
+  "author": "",
+  "scripts": {
+    "test": "cargo test",
+    "build": "cargo build --release",
+    "start": "cargo run --release",
+    "format": "cargo fmt --all",
+    "up": "cargo fmt && cargo clean && cargo build && cargo run"
+  }
+}
