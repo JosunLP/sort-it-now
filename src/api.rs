@@ -330,7 +330,7 @@ impl PackResponse {
                         label,
                     } = cont;
 
-                    let total_weight: f64 = placed.iter().map(|b| b.object.weight).sum();
+                    let total_weight = placed.iter().map(|b| b.object.weight).sum();
                     let placed_objects = placed
                         .into_iter()
                         .map(|p| PackedObject {
