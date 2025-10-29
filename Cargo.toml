@@ -2,7 +2,7 @@
 name = "sort_it_now"
 version = "1.0.0"
 edition = "2024"
-license = "NCSL-1.0"
+license = "LicenseRef-NCSL-1.0"
 
 [dependencies]
 axum = "0.7"
