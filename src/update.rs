@@ -3,7 +3,7 @@ use reqwest::header::HeaderMap;
 use serde::Deserialize;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::os::unix::fs::PermissionsExt;
 #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 use std::path::Path;
@@ -568,8 +568,8 @@ fn format_wait(duration: Duration) -> String {
     parts.join(" ")
 }
 
-#[cfg(target_os = "linux")]
-async fn install_on_linux(
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+async fn install_on_unix(
     archive_path: &Path,
     extract_root: &Path,
     tag_name: &str,
@@ -649,8 +649,14 @@ async fn install_on_linux(
     Ok(())
 }
 
-#[cfg(target_os = "macos")]
-use std::os::unix::fs::PermissionsExt;
+#[cfg(target_os = "linux")]
+async fn install_on_linux(
+    archive_path: &Path,
+    extract_root: &Path,
+    tag_name: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    install_on_unix(archive_path, extract_root, tag_name).await
+}
 
 #[cfg(target_os = "macos")]
 async fn install_on_macos(
@@ -658,79 +664,7 @@ async fn install_on_macos(
     extract_root: &Path,
     tag_name: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let archive_path = archive_path.to_path_buf();
-    let extract_root = extract_root.to_path_buf();
-
-    task::spawn_blocking({
-        let extract_root = extract_root.clone();
-        move || -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-            let file = std::fs::File::open(&archive_path)?;
-            let decoder = flate2::read::GzDecoder::new(file);
-            let mut archive = tar::Archive::new(decoder);
-            archive.unpack(&extract_root)?;
-            Ok(())
-        }
-    })
-    .await??;
-
-    let bundle_dir = bundle_directory(&extract_root, tag_name);
-    let binary_path = bundle_dir.join("sort_it_now");
-    if !binary_path.exists() {
-        return Err("Binärdatei sort_it_now wurde im entpackten Paket nicht gefunden".into());
-    }
-
-    let current_exe = std::env::current_exe()?;
-    let install_dir = current_exe
-        .parent()
-        .ok_or("Konnte Installationsverzeichnis nicht bestimmen")?
-        .to_path_buf();
-
-    let staged_path = install_dir.join("sort_it_now.tmp");
-    let final_path = install_dir.join("sort_it_now");
-    if let Err(err) = fs::remove_file(&staged_path).await {
-        if err.kind() != std::io::ErrorKind::NotFound {
-            return Err(err.into());
-        }
-    }
-
-    let next_launch_path = install_dir.join("sort_it_now.new");
-    if let Err(err) = fs::remove_file(&next_launch_path).await {
-        if err.kind() != std::io::ErrorKind::NotFound {
-            return Err(err.into());
-        }
-    }
-
-    fs::copy(&binary_path, &staged_path).await?;
-    let metadata = fs::metadata(&staged_path).await?;
-    let mut permissions = metadata.permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(&staged_path, permissions).await?;
-
-    if let Err(err) = fs::rename(&staged_path, &final_path).await {
-        if err.kind() == std::io::ErrorKind::PermissionDenied {
-            let _ = fs::remove_file(&next_launch_path).await;
-            fs::rename(&staged_path, &next_launch_path).await?;
-            println!(
-                "⚠️ Die laufende Anwendung konnte nicht ersetzt werden: {}.",
-                err
-            );
-            println!(
-                "💡 Die aktualisierte Version wurde als {} abgelegt. Benenne sie nach einem Neustart in sort_it_now um.",
-                next_launch_path.display()
-            );
-            return Ok(());
-        }
-
-        let _ = fs::remove_file(&staged_path).await;
-        return Err(err.into());
-    }
-
-    println!(
-        "✅ Update nach {} installiert (Installationsziel: {}).",
-        tag_name,
-        install_dir.display()
-    );
-    Ok(())
+    install_on_unix(archive_path, extract_root, tag_name).await
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
