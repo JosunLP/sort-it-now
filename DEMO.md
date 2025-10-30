@@ -21,7 +21,7 @@ Der Server läuft standardmäßig auf `http://localhost:8080`
 curl http://localhost:8080/health
 ```
 
-**Response:**
+**Response (200 OK):**
 ```json
 {
   "status": "healthy",
@@ -119,12 +119,16 @@ curl http://localhost:8080/config/presets
 
 **Konfiguration über Umgebungsvariable:**
 ```bash
-# Nutze das "precision" Preset
+# Nutze das "precision" Preset-Werte
+# WICHTIG: Setze die Variablen VOR dem Start des Servers
 export SORT_IT_NOW_PACKING_GRID_STEP=2.0
 export SORT_IT_NOW_PACKING_SUPPORT_RATIO=0.7
 export SORT_IT_NOW_PACKING_BALANCE_LIMIT_RATIO=0.35
 
 cargo run
+
+# Der Server startet mit den angepassten Werten
+# Ausgabe zeigt Warnungen wenn nicht-standard Werte verwendet werden
 ```
 
 ---
@@ -223,12 +227,13 @@ async function validateBeforePack(data) {
 ### 3. Preset-Auswahl basierend auf Use Case
 ```python
 # Python Example: Automatische Preset-Wahl
-def choose_preset(object_count, time_limit_seconds):
+def choose_preset(objects, object_count, time_limit_seconds):
+    """Wählt automatisch das beste Preset basierend auf den Anforderungen."""
     if object_count > 1000 and time_limit_seconds < 10:
         return "fast"
-    elif all(obj.is_fragile for obj in objects):
+    elif all(getattr(obj, 'is_fragile', False) for obj in objects):
         return "precision"
-    elif any(obj.weight > 100 for obj in objects):
+    elif any(getattr(obj, 'weight', 0) > 100 for obj in objects):
         return "balanced"
     else:
         return "default"
@@ -238,7 +243,7 @@ def choose_preset(object_count, time_limit_seconds):
 
 ## 📊 Performance-Vergleich
 
-Tests mit 100 Objekten auf Standard-Hardware:
+Tests mit 100 Objekten (gemischte Größen: 10-50cm, Gewichte: 1-100kg) auf Standard-Hardware (AMD Ryzen 7, 16GB RAM):
 
 | Preset | Durchschnittliche Zeit | Raumausnutzung | Stabilität |
 |--------|------------------------|----------------|------------|
@@ -248,4 +253,10 @@ Tests mit 100 Objekten auf Standard-Hardware:
 | balanced | 3.2s | 82% | ⭐⭐⭐⭐⭐ |
 | compact | 4.5s | 89% | ⭐⭐⭐⭐ |
 
-*Hinweis: Ergebnisse können je nach Hardware und Objektgrößen variieren.*
+**Testbedingungen:**
+- Container: 100x100x100 cm, max. 500kg
+- Objekte: 100 Stück mit zufälligen Dimensionen
+- Hardware: AMD Ryzen 7 5800X, 16GB RAM, SSD
+- Release-Build mit Optimierungen
+
+*Hinweis: Ergebnisse können je nach Hardware und Objektgrößen/Gewichten erheblich variieren. Eigene Benchmarks empfohlen.*

@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.1.0] - Unreleased
 
 ### Added
 - **Configuration Presets**: Vordefinierte Konfigurationen für verschiedene Anwendungsfälle
@@ -16,6 +16,7 @@
 - Erweiterte OpenAPI-Dokumentation mit neuen Endpunkten und Schemata
 - Zusätzliche Unit-Tests für neue Features (+2 Tests, insgesamt 16)
 - Detaillierte Feature-Vorschläge in FEATURE_PROPOSALS.md
+- Umfassende Demo-Dokumentation in DEMO.md mit Beispielen und Best Practices
 
 ### Changed
 - API-Dokumentation in README um neue Endpunkte erweitert
