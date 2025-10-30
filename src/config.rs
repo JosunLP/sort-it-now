@@ -2,6 +2,16 @@ use std::env;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use crate::optimizer::PackingConfig;
+use serde::Serialize;
+
+/// Vordefiniertes Konfigurations-Preset
+#[derive(Clone, Debug, Serialize)]
+pub struct ConfigPreset {
+    pub name: String,
+    pub description: String,
+    #[serde(skip)]
+    pub config: PackingConfig,
+}
 
 /// Gesamte Anwendungskonfiguration, geladen aus Umgebungsvariablen oder Defaultwerten.
 #[derive(Clone, Debug)]
@@ -167,6 +177,75 @@ impl OptimizerConfig {
     const GENERAL_EPSILON_VAR: &'static str = "SORT_IT_NOW_PACKING_GENERAL_EPSILON";
     const BALANCE_RATIO_VAR: &'static str = "SORT_IT_NOW_PACKING_BALANCE_LIMIT_RATIO";
     const FOOTPRINT_TOLERANCE_VAR: &'static str = "SORT_IT_NOW_PACKING_FOOTPRINT_TOLERANCE";
+
+    /// Vordefinierte Konfigurationspresets für verschiedene Anwendungsfälle
+    pub fn presets() -> Vec<ConfigPreset> {
+        vec![
+            ConfigPreset {
+                name: "default".to_string(),
+                description: "Ausgewogene Standardkonfiguration".to_string(),
+                config: PackingConfig::default(),
+            },
+            ConfigPreset {
+                name: "precision".to_string(),
+                description: "Höchste Genauigkeit und Stabilität, langsamer".to_string(),
+                config: PackingConfig::builder()
+                    .grid_step(2.0)
+                    .support_ratio(0.7)
+                    .height_epsilon(1e-4)
+                    .general_epsilon(1e-8)
+                    .balance_limit_ratio(0.35)
+                    .footprint_cluster_tolerance(0.1)
+                    .build(),
+            },
+            ConfigPreset {
+                name: "fast".to_string(),
+                description: "Schnelle Berechnung, etwas weniger genau".to_string(),
+                config: PackingConfig::builder()
+                    .grid_step(10.0)
+                    .support_ratio(0.5)
+                    .height_epsilon(1e-2)
+                    .general_epsilon(1e-5)
+                    .balance_limit_ratio(0.5)
+                    .footprint_cluster_tolerance(0.2)
+                    .build(),
+            },
+            ConfigPreset {
+                name: "balanced".to_string(),
+                description: "Optimiert für beste Gewichtsverteilung".to_string(),
+                config: PackingConfig::builder()
+                    .grid_step(5.0)
+                    .support_ratio(0.65)
+                    .height_epsilon(1e-3)
+                    .general_epsilon(1e-6)
+                    .balance_limit_ratio(0.3)
+                    .footprint_cluster_tolerance(0.15)
+                    .build(),
+            },
+            ConfigPreset {
+                name: "compact".to_string(),
+                description: "Maximale Raumausnutzung, toleriert mehr Unbalance".to_string(),
+                config: PackingConfig::builder()
+                    .grid_step(3.0)
+                    .support_ratio(0.55)
+                    .height_epsilon(1e-3)
+                    .general_epsilon(1e-6)
+                    .balance_limit_ratio(0.5)
+                    .footprint_cluster_tolerance(0.2)
+                    .build(),
+            },
+        ]
+    }
+
+    /// Erstellt eine OptimizerConfig aus einem benannten Preset
+    pub fn from_preset(preset_name: &str) -> Option<Self> {
+        Self::presets()
+            .into_iter()
+            .find(|p| p.name == preset_name)
+            .map(|preset| Self {
+                packing: preset.config,
+            })
+    }
 
     fn from_env() -> Self {
         let grid_step = load_f64_with_warning(

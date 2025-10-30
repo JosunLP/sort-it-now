@@ -23,7 +23,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use tower_http::cors::{Any, CorsLayer};
 use utoipa::{OpenApi, ToSchema};
 
-use crate::config::{ApiConfig, OptimizerConfig};
+use crate::config::{ApiConfig, ConfigPreset, OptimizerConfig};
 use crate::model::{Box3D, Container, ContainerBlueprint, ValidationError};
 use crate::optimizer::{
     ContainerDiagnostics, PackingDiagnosticsSummary, PackingResult, SupportDiagnostics,
@@ -372,7 +372,13 @@ impl PackResponse {
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(handle_pack, handle_pack_stream),
+    paths(
+        handle_pack,
+        handle_pack_stream,
+        handle_validate,
+        handle_health,
+        handle_config_presets
+    ),
     components(
         schemas(
             PackRequest,
@@ -385,10 +391,17 @@ impl PackResponse {
             Box3D,
             ContainerDiagnostics,
             SupportDiagnostics,
-            PackingDiagnosticsSummary
+            PackingDiagnosticsSummary,
+            HealthResponse,
+            ValidationResponse,
+            ConfigPresetResponse
         )
     ),
-    tags((name = "packing", description = "Endpunkte zur Verpackungsoptimierung"))
+    tags(
+        (name = "packing", description = "Endpunkte zur Verpackungsoptimierung"),
+        (name = "monitoring", description = "Überwachung und Status"),
+        (name = "configuration", description = "Konfigurations-Management")
+    )
 )]
 struct ApiDoc;
 
@@ -408,6 +421,9 @@ pub async fn start_api_server(config: ApiConfig, optimizer_config: OptimizerConf
         // API-Endpunkte
         .route("/pack", post(handle_pack))
         .route("/pack_stream", post(handle_pack_stream))
+        .route("/validate", post(handle_validate))
+        .route("/health", get(handle_health))
+        .route("/config/presets", get(handle_config_presets))
         // API-Dokumentation
         .route("/docs/openapi.json", get(serve_openapi_json))
         .route("/docs", get(serve_openapi_ui))
@@ -437,6 +453,9 @@ pub async fn start_api_server(config: ApiConfig, optimizer_config: OptimizerConf
     println!("📦 API-Endpunkte:");
     println!("   - POST /pack");
     println!("   - POST /pack_stream");
+    println!("   - POST /validate");
+    println!("   - GET  /health");
+    println!("   - GET  /config/presets");
     println!("📑 Dokumentation:");
     println!("   - GET /docs");
     println!("   - GET /docs/openapi.json");
@@ -588,6 +607,108 @@ async fn serve_openapi_ui(State(_state): State<ApiState>) -> impl IntoResponse {
     Html(SWAGGER_UI_HTML)
 }
 
+/// Handler für GET /health Endpunkt.
+///
+/// Gibt den Gesundheitsstatus des Services zurück.
+#[utoipa::path(
+    get,
+    path = "/health",
+    responses(
+        (status = 200, description = "Service ist bereit", body = HealthResponse)
+    ),
+    tag = "monitoring"
+)]
+async fn handle_health() -> impl IntoResponse {
+    let response = HealthResponse {
+        status: "healthy".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        service: "sort-it-now".to_string(),
+    };
+    (StatusCode::OK, Json(response)).into_response()
+}
+
+/// Response-Struktur für den Health-Endpunkt.
+#[derive(Serialize, ToSchema)]
+pub struct HealthResponse {
+    pub status: String,
+    pub version: String,
+    pub service: String,
+}
+
+/// Handler für POST /validate Endpunkt.
+///
+/// Validiert die Eingabedaten ohne das eigentliche Packing durchzuführen.
+#[utoipa::path(
+    post,
+    path = "/validate",
+    request_body = PackRequest,
+    responses(
+        (status = 200, description = "Eingabe ist gültig", body = ValidationResponse),
+        (
+            status = UNPROCESSABLE_ENTITY,
+            description = "Ungültige Eingabe",
+            body = ErrorResponse
+        )
+    ),
+    tag = "packing"
+)]
+async fn handle_validate(
+    payload: Result<Json<PackRequest>, JsonRejection>,
+) -> impl IntoResponse {
+    let request = match parse_pack_request(payload) {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
+
+    let response = ValidationResponse {
+        valid: true,
+        container_count: request.container_count(),
+        object_count: request.object_count(),
+        message: "Eingabe erfolgreich validiert".to_string(),
+    };
+    (StatusCode::OK, Json(response)).into_response()
+}
+
+/// Response-Struktur für den Validate-Endpunkt.
+#[derive(Serialize, ToSchema)]
+pub struct ValidationResponse {
+    pub valid: bool,
+    pub container_count: usize,
+    pub object_count: usize,
+    pub message: String,
+}
+
+/// Handler für GET /config/presets Endpunkt.
+///
+/// Gibt vordefinierte Konfigurationspresets zurück.
+#[utoipa::path(
+    get,
+    path = "/config/presets",
+    responses(
+        (status = 200, description = "Liste der verfügbaren Presets", body = Vec<ConfigPresetResponse>)
+    ),
+    tag = "configuration"
+)]
+async fn handle_config_presets() -> impl IntoResponse {
+    let presets: Vec<ConfigPresetResponse> = OptimizerConfig::presets()
+        .into_iter()
+        .map(|preset| ConfigPresetResponse {
+            name: preset.name,
+            description: preset.description,
+        })
+        .collect();
+
+    (StatusCode::OK, Json(presets)).into_response()
+}
+
+/// Response-Struktur für Config-Presets.
+#[derive(Serialize, ToSchema)]
+pub struct ConfigPresetResponse {
+    pub name: String,
+    pub description: String,
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -604,6 +725,18 @@ mod tests {
             paths.contains_key("/pack_stream"),
             "OpenAPI-Dokumentation fehlt der /pack_stream Pfad"
         );
+        assert!(
+            paths.contains_key("/validate"),
+            "OpenAPI-Dokumentation fehlt der /validate Pfad"
+        );
+        assert!(
+            paths.contains_key("/health"),
+            "OpenAPI-Dokumentation fehlt der /health Pfad"
+        );
+        assert!(
+            paths.contains_key("/config/presets"),
+            "OpenAPI-Dokumentation fehlt der /config/presets Pfad"
+        );
     }
 
     #[test]
@@ -614,12 +747,51 @@ mod tests {
             .as_ref()
             .expect("OpenAPI-Dokumentation enthält keine Components");
         let schemas = &components.schemas;
-        for name in ["PackRequest", "PackResponse", "ErrorResponse"] {
+        for name in [
+            "PackRequest",
+            "PackResponse",
+            "ErrorResponse",
+            "HealthResponse",
+            "ValidationResponse",
+            "ConfigPresetResponse",
+        ] {
             assert!(
                 schemas.contains_key(name),
                 "Erwartetes Schema '{}' fehlt im OpenAPI-Spec",
                 name
             );
         }
+    }
+
+    #[test]
+    fn config_presets_are_available() {
+        let presets = OptimizerConfig::presets();
+        assert!(!presets.is_empty(), "Es sollten Presets vorhanden sein");
+
+        let preset_names: Vec<_> = presets.iter().map(|p| p.name.as_str()).collect();
+        assert!(
+            preset_names.contains(&"default"),
+            "Default-Preset sollte vorhanden sein"
+        );
+        assert!(
+            preset_names.contains(&"precision"),
+            "Precision-Preset sollte vorhanden sein"
+        );
+        assert!(
+            preset_names.contains(&"fast"),
+            "Fast-Preset sollte vorhanden sein"
+        );
+    }
+
+    #[test]
+    fn preset_can_be_loaded_by_name() {
+        let config = OptimizerConfig::from_preset("precision");
+        assert!(config.is_some(), "Precision-Preset sollte ladbar sein");
+
+        let config = OptimizerConfig::from_preset("nonexistent");
+        assert!(
+            config.is_none(),
+            "Nicht-existentes Preset sollte None zurückgeben"
+        );
     }
 }

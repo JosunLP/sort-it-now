@@ -143,6 +143,68 @@ Streamt Fortschritts-Events in Echtzeit als `text/event-stream`. Jeder Event ist
 
 Hinweis: Im Frontend kannst du den Live-Modus mit dem Button "📡 Pack (Live)" starten.
 
+### POST /validate
+
+Validiert die Eingabedaten ohne das eigentliche Packing durchzuführen. Nützlich für schnelle Client-seitige Validierung.
+
+**Request:** Gleiche Struktur wie `/pack`
+
+**Response:**
+
+```json
+{
+  "valid": true,
+  "container_count": 2,
+  "object_count": 2,
+  "message": "Eingabe erfolgreich validiert"
+}
+```
+
+### GET /health
+
+Gibt den Gesundheitsstatus des Services zurück.
+
+**Response:**
+
+```json
+{
+  "status": "healthy",
+  "version": "1.0.0",
+  "service": "sort-it-now"
+}
+```
+
+### GET /config/presets
+
+Gibt vordefinierte Konfigurationspresets zurück.
+
+**Response:**
+
+```json
+[
+  {
+    "name": "default",
+    "description": "Ausgewogene Standardkonfiguration"
+  },
+  {
+    "name": "precision",
+    "description": "Höchste Genauigkeit und Stabilität, langsamer"
+  },
+  {
+    "name": "fast",
+    "description": "Schnelle Berechnung, etwas weniger genau"
+  },
+  {
+    "name": "balanced",
+    "description": "Optimiert für beste Gewichtsverteilung"
+  },
+  {
+    "name": "compact",
+    "description": "Maximale Raumausnutzung, toleriert mehr Unbalance"
+  }
+]
+```
+
 ## 🧪 Tests ausführen
 
 ```bash
