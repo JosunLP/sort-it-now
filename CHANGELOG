@@ -1,5 +1,31 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Configuration Presets**: Vordefinierte Konfigurationen für verschiedene Anwendungsfälle
+  - `default`: Ausgewogene Standardkonfiguration
+  - `precision`: Höchste Genauigkeit und Stabilität (langsamer)
+  - `fast`: Schnelle Berechnung (weniger genau)
+  - `balanced`: Optimiert für beste Gewichtsverteilung
+  - `compact`: Maximale Raumausnutzung
+- **GET /health**: Endpunkt für Gesundheitsprüfungen und Service-Status
+- **POST /validate**: Schnelle Eingabevalidierung ohne Packing-Berechnung
+- **GET /config/presets**: Listet verfügbare Konfigurationspresets
+- `OptimizerConfig::from_preset()`: Funktion zum Laden benannter Presets
+- Erweiterte OpenAPI-Dokumentation mit neuen Endpunkten und Schemata
+- Zusätzliche Unit-Tests für neue Features (+2 Tests, insgesamt 16)
+- Detaillierte Feature-Vorschläge in FEATURE_PROPOSALS.md
+
+### Changed
+- API-Dokumentation in README um neue Endpunkte erweitert
+- OpenAPI-Schema um neue Tags und Schemas erweitert (monitoring, configuration)
+
+### Technical Notes
+- 100% Rückwärtskompatibilität gewährleistet
+- Alle bestehenden Tests bleiben grün
+- Neue Features sind opt-in und beeinflussen bestehende API-Aufrufe nicht
+
 ## [1.0.0] - 29-10-2025
 
 - Initial release of sort_it_now.
