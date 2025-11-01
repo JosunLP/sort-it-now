@@ -333,6 +333,9 @@ const TARGET_SUFFIX: &str = "macos-x86_64";
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 const TARGET_SUFFIX: &str = "macos-arm64";
 
+#[cfg(all(target_os = "macos", not(any(target_arch = "x86_64", target_arch = "aarch64"))))]
+compile_error!("Unsupported macOS architecture for updates; build target must be x86_64 or aarch64.");
+
 #[cfg(target_os = "windows")]
 const TARGET_SUFFIX: &str = "windows-x86_64";
 #[cfg(target_os = "windows")]

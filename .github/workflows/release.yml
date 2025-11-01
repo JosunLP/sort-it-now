@@ -70,7 +70,11 @@ jobs:
           cp scripts/install-unix.sh "$BUNDLE_DIR/install.sh"
           chmod +x "$BUNDLE_DIR/install.sh"
           tar -czf "$ARCHIVE_PATH" "$BUNDLE_DIR"
-          shasum -a 256 "$ARCHIVE_PATH" > "$ARCHIVE_PATH.sha256"
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            sha256sum "$ARCHIVE_PATH" > "$ARCHIVE_PATH.sha256"
+          else
+            shasum -a 256 "$ARCHIVE_PATH" | awk '{printf "%s  %s\n", $1, $2}' > "$ARCHIVE_PATH.sha256"
+          fi
 
       - name: Package artifact (Windows)
         if: matrix.os == 'windows-latest'
