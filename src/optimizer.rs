@@ -30,6 +30,8 @@ pub struct PackingConfig {
     pub balance_limit_ratio: f64,
     /// Relative Toleranz bei der Vorgruppierung nach Grundfläche zur Reduktion von Backtracking
     pub footprint_cluster_tolerance: f64,
+    /// Erlaubt das Rotieren der Objekte, um alternative Ausrichtungen zu prüfen
+    pub allow_item_rotation: bool,
 }
 
 impl PackingConfig {
@@ -39,6 +41,7 @@ impl PackingConfig {
     pub const DEFAULT_GENERAL_EPSILON: f64 = 1e-6;
     pub const DEFAULT_BALANCE_LIMIT_RATIO: f64 = 0.45;
     pub const DEFAULT_FOOTPRINT_CLUSTER_TOLERANCE: f64 = 0.15;
+    pub const DEFAULT_ALLOW_ITEM_ROTATION: bool = false;
 
     /// Erstellt einen Builder für benutzerdefinierte Konfiguration.
     pub fn builder() -> PackingConfigBuilder {
@@ -55,6 +58,7 @@ impl Default for PackingConfig {
             general_epsilon: Self::DEFAULT_GENERAL_EPSILON,
             balance_limit_ratio: Self::DEFAULT_BALANCE_LIMIT_RATIO,
             footprint_cluster_tolerance: Self::DEFAULT_FOOTPRINT_CLUSTER_TOLERANCE,
+            allow_item_rotation: Self::DEFAULT_ALLOW_ITEM_ROTATION,
         }
     }
 }
@@ -107,6 +111,12 @@ impl PackingConfigBuilder {
     /// Setzt die Toleranz für die Vorgruppierung basierend auf der Grundfläche.
     pub fn footprint_cluster_tolerance(mut self, tolerance: f64) -> Self {
         self.config.footprint_cluster_tolerance = tolerance;
+        self
+    }
+
+    /// Aktiviert oder deaktiviert Rotationen von Objekten.
+    pub fn allow_item_rotation(mut self, allow: bool) -> Self {
+        self.config.allow_item_rotation = allow;
         self
     }
 
@@ -211,6 +221,43 @@ impl ObjectCluster {
     fn into_members(self) -> Vec<Box3D> {
         self.members
     }
+}
+
+fn orientations_for(object: &Box3D, allow_rotation: bool) -> Vec<Box3D> {
+    if !allow_rotation {
+        return vec![object.clone()];
+    }
+
+    let (w, d, h) = object.dims;
+    let permutations = [
+        (w, d, h),
+        (w, h, d),
+        (d, w, h),
+        (d, h, w),
+        (h, w, d),
+        (h, d, w),
+    ];
+
+    let mut unique: Vec<Box3D> = Vec::new();
+    for dims in permutations.into_iter() {
+        if unique
+            .iter()
+            .any(|existing| dims_almost_equal(existing.dims, dims))
+        {
+            continue;
+        }
+
+        let mut rotated = object.clone();
+        rotated.dims = dims;
+        unique.push(rotated);
+    }
+
+    unique
+}
+
+fn dims_almost_equal(a: (f64, f64, f64), b: (f64, f64, f64)) -> bool {
+    const EPS: f64 = 1e-9;
+    (a.0 - b.0).abs() <= EPS && (a.1 - b.1).abs() <= EPS && (a.2 - b.2).abs() <= EPS
 }
 
 /// Support-Kennzahlen pro Objekt.
@@ -362,10 +409,13 @@ fn determine_unfit_reason_across_templates(
         return UnplacedReason::TooHeavyForContainer;
     }
 
+    let orientations = orientations_for(object, config.allow_item_rotation);
     let dimension_blocked = templates.iter().all(|tpl| {
-        object.dims.0 > tpl.dims.0 + config.general_epsilon
-            || object.dims.1 > tpl.dims.1 + config.general_epsilon
-            || object.dims.2 > tpl.dims.2 + config.general_epsilon
+        orientations.iter().all(|orientation| {
+            orientation.dims.0 > tpl.dims.0 + config.general_epsilon
+                || orientation.dims.1 > tpl.dims.1 + config.general_epsilon
+                || orientation.dims.2 > tpl.dims.2 + config.general_epsilon
+        })
     });
     if dimension_blocked {
         return UnplacedReason::DimensionsExceedContainer;
@@ -535,130 +585,119 @@ pub fn pack_objects_with_progress(
     let mut container_diagnostics: Vec<ContainerDiagnostics> = Vec::new();
 
     // Platziere jedes Objekt
-    for obj in objects {
-        let mut target: Option<(usize, (f64, f64, f64))> = None;
+    'object_loop: for obj in objects {
+        let orientations = orientations_for(&obj, config.allow_item_rotation);
 
-        // Versuche, in bestehenden Container zu platzieren
-        for idx in 0..containers.len() {
-            if !containers[idx].can_fit(&obj) {
-                continue;
-            }
-            if let Some(position) = find_stable_position(&obj, &containers[idx], &config) {
-                target = Some((idx, position));
-                break;
-            }
-        }
+        for oriented in orientations {
+            // Versuche, in bestehenden Containern zu platzieren
+            for idx in 0..containers.len() {
+                if !containers[idx].can_fit(&oriented) {
+                    continue;
+                }
 
-        // Platziere in gefundenem Container oder erstelle neuen
-        if let Some((idx, position)) = target {
-            containers[idx].placed.push(PlacedBox {
-                object: obj,
-                position,
-            });
-            let total_w = containers[idx].total_weight();
-            on_event(&PackEvent::ObjectPlaced {
-                container_id: idx + 1,
-                id: containers[idx].placed.last().unwrap().object.id,
-                pos: position,
-                weight: containers[idx].placed.last().unwrap().object.weight,
-                dims: containers[idx].placed.last().unwrap().object.dims,
-                total_weight: total_w,
-            });
-            let diagnostics = compute_container_diagnostics(&containers[idx], &config);
-            if let Some(slot) = container_diagnostics.get_mut(idx) {
-                *slot = diagnostics.clone();
-            } else if idx == container_diagnostics.len() {
-                container_diagnostics.push(diagnostics.clone());
-            } else {
-                panic!(
-                    "diagnostics vector out of sync with containers (idx = {}, len = {})",
-                    idx,
-                    container_diagnostics.len()
-                );
-            }
-            on_event(&PackEvent::ContainerDiagnostics {
-                container_id: idx + 1,
-                diagnostics,
-            });
-        } else {
-            match templates.iter().position(|tpl| tpl.can_fit(&obj)) {
-                Some(template_index) => {
-                    let template = &templates[template_index];
-                    let mut new_container = template.instantiate();
-                    let new_id = containers.len() + 1;
-                    match find_stable_position(&obj, &new_container, &config) {
-                        Some(position) => {
-                            new_container.placed.push(PlacedBox {
-                                object: obj,
-                                position,
-                            });
-                            let total_w = new_container.total_weight();
-                            let dims = new_container.dims;
-                            let max_weight = new_container.max_weight;
-                            let label = new_container.label.clone();
-                            let template_id = new_container.template_id;
-                            on_event(&PackEvent::ContainerStarted {
-                                id: new_id,
-                                dims,
-                                max_weight,
-                                label,
-                                template_id,
-                            });
-                            containers.push(new_container);
-                            let placed = containers
-                                .last()
-                                .and_then(|c| c.placed.last())
-                                .expect("missing newly placed box");
-                            on_event(&PackEvent::ObjectPlaced {
-                                container_id: new_id,
-                                id: placed.object.id,
-                                pos: placed.position,
-                                weight: placed.object.weight,
-                                dims: placed.object.dims,
-                                total_weight: total_w,
-                            });
-                            let diagnostics = containers
-                                .last()
-                                .map(|c| compute_container_diagnostics(c, &config))
-                                .expect("missing container for diagnostics");
-                            container_diagnostics.push(diagnostics.clone());
-                            on_event(&PackEvent::ContainerDiagnostics {
-                                container_id: new_id,
-                                diagnostics,
-                            });
-                        }
-                        None => {
-                            let reason = UnplacedReason::NoStablePosition;
-                            on_event(&PackEvent::ObjectRejected {
-                                id: obj.id,
-                                weight: obj.weight,
-                                dims: obj.dims,
-                                reason_code: reason.code().to_string(),
-                                reason_text: reason.to_string(),
-                            });
-                            unplaced.push(UnplacedBox {
-                                object: obj,
-                                reason,
-                            });
-                        }
+                if let Some(position) = find_stable_position(&oriented, &containers[idx], &config) {
+                    containers[idx].placed.push(PlacedBox {
+                        object: oriented,
+                        position,
+                    });
+                    let total_w = containers[idx].total_weight();
+                    let placed = containers[idx]
+                        .placed
+                        .last()
+                        .expect("missing placed object after insertion");
+                    on_event(&PackEvent::ObjectPlaced {
+                        container_id: idx + 1,
+                        id: placed.object.id,
+                        pos: placed.position,
+                        weight: placed.object.weight,
+                        dims: placed.object.dims,
+                        total_weight: total_w,
+                    });
+                    let diagnostics = compute_container_diagnostics(&containers[idx], &config);
+                    if let Some(slot) = container_diagnostics.get_mut(idx) {
+                        *slot = diagnostics.clone();
+                    } else if idx == container_diagnostics.len() {
+                        container_diagnostics.push(diagnostics.clone());
+                    } else {
+                        panic!(
+                            "diagnostics vector out of sync with containers (idx = {}, len = {})",
+                            idx,
+                            container_diagnostics.len()
+                        );
                     }
+                    on_event(&PackEvent::ContainerDiagnostics {
+                        container_id: idx + 1,
+                        diagnostics,
+                    });
+                    continue 'object_loop;
                 }
-                None => {
-                    let reason = determine_unfit_reason_across_templates(&templates, &obj, &config);
-                    on_event(&PackEvent::ObjectRejected {
-                        id: obj.id,
-                        weight: obj.weight,
-                        dims: obj.dims,
-                        reason_code: reason.code().to_string(),
-                        reason_text: reason.to_string(),
+            }
+
+            // Keine bestehenden Container geeignet, versuche neue Container
+            for template in &templates {
+                if !template.can_fit(&oriented) {
+                    continue;
+                }
+
+                let mut new_container = template.instantiate();
+                if let Some(position) = find_stable_position(&oriented, &new_container, &config) {
+                    let new_id = containers.len() + 1;
+                    let dims = new_container.dims;
+                    let max_weight = new_container.max_weight;
+                    let label = new_container.label.clone();
+                    let template_id = new_container.template_id;
+                    on_event(&PackEvent::ContainerStarted {
+                        id: new_id,
+                        dims,
+                        max_weight,
+                        label,
+                        template_id,
                     });
-                    unplaced.push(UnplacedBox {
-                        object: obj,
-                        reason,
+
+                    new_container.placed.push(PlacedBox {
+                        object: oriented,
+                        position,
                     });
+                    let total_w = new_container.total_weight();
+                    containers.push(new_container);
+                    let placed = containers
+                        .last()
+                        .and_then(|c| c.placed.last())
+                        .expect("missing newly placed box");
+                    on_event(&PackEvent::ObjectPlaced {
+                        container_id: new_id,
+                        id: placed.object.id,
+                        pos: placed.position,
+                        weight: placed.object.weight,
+                        dims: placed.object.dims,
+                        total_weight: total_w,
+                    });
+                    let diagnostics = containers
+                        .last()
+                        .map(|c| compute_container_diagnostics(c, &config))
+                        .expect("missing container for diagnostics");
+                    container_diagnostics.push(diagnostics.clone());
+                    on_event(&PackEvent::ContainerDiagnostics {
+                        container_id: new_id,
+                        diagnostics,
+                    });
+                    continue 'object_loop;
                 }
             }
         }
+
+        let reason = determine_unfit_reason_across_templates(&templates, &obj, &config);
+        on_event(&PackEvent::ObjectRejected {
+            id: obj.id,
+            weight: obj.weight,
+            dims: obj.dims,
+            reason_code: reason.code().to_string(),
+            reason_text: reason.to_string(),
+        });
+        unplaced.push(UnplacedBox {
+            object: obj,
+            reason,
+        });
     }
 
     let diagnostics_summary = summarize_diagnostics(container_diagnostics.iter());
@@ -1465,6 +1504,33 @@ mod tests {
         };
 
         assert!(find_stable_position(&heavy_box, &container, &config).is_none());
+    }
+
+    #[test]
+    fn rotation_toggle_controls_reorientation() {
+        let object = Box3D {
+            id: 1,
+            dims: (80.0, 40.0, 60.0),
+            weight: 10.0,
+        };
+        let templates = single_blueprint((60.0, 80.0, 40.0), 100.0);
+
+        let mut config = PackingConfig::default();
+        config.allow_item_rotation = false;
+        let result_without_rotation =
+            pack_objects_with_config(vec![object.clone()], templates.clone(), config);
+        assert_eq!(result_without_rotation.unplaced.len(), 1);
+        assert!(matches!(
+            result_without_rotation.unplaced[0].reason,
+            UnplacedReason::DimensionsExceedContainer
+        ));
+
+        config.allow_item_rotation = true;
+        let result_with_rotation = pack_objects_with_config(vec![object], templates, config);
+        assert!(result_with_rotation.unplaced.is_empty());
+        assert_eq!(result_with_rotation.containers.len(), 1);
+        let placed_dims = result_with_rotation.containers[0].placed[0].object.dims;
+        assert_eq!(placed_dims, (60.0, 80.0, 40.0));
     }
 
     #[test]

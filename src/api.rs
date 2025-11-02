@@ -114,18 +114,23 @@ impl ContainerRequest {
         ],
         "objects": [
             { "id": 1, "dims": [30.0, 40.0, 20.0], "weight": 5.0 }
-        ]
+        ],
+        "allow_rotations": true
     })
 )]
 pub struct PackRequest {
     pub containers: Vec<ContainerRequest>,
     pub objects: Vec<Box3D>,
+    #[serde(default)]
+    #[schema(default = false, nullable = true)]
+    pub allow_rotations: Option<bool>,
 }
 
 #[derive(Debug)]
 struct ValidatedPackRequest {
     containers: Vec<ContainerBlueprint>,
     objects: Vec<Box3D>,
+    allow_rotations: Option<bool>,
 }
 
 impl ValidatedPackRequest {
@@ -137,8 +142,8 @@ impl ValidatedPackRequest {
         self.objects.len()
     }
 
-    fn into_parts(self) -> (Vec<Box3D>, Vec<ContainerBlueprint>) {
-        (self.objects, self.containers)
+    fn into_parts(self) -> (Vec<Box3D>, Vec<ContainerBlueprint>, Option<bool>) {
+        (self.objects, self.containers, self.allow_rotations)
     }
 }
 
@@ -173,6 +178,7 @@ impl PackRequest {
         Ok(ValidatedPackRequest {
             containers,
             objects,
+            allow_rotations: self.allow_rotations,
         })
     }
 }
@@ -481,13 +487,16 @@ async fn handle_pack(
 
     let object_count = request.object_count();
     let container_count = request.container_count();
-    let (objects, container_blueprints) = request.into_parts();
+    let (objects, container_blueprints, allow_rotations_override) = request.into_parts();
 
     println!(
         "📥 Neue Pack-Anfrage: {} Objekte, {} Verpackungstypen",
         object_count, container_count
     );
-    let packing_config = state.optimizer_config.packing_config();
+    let mut packing_config = state.optimizer_config.packing_config();
+    if let Some(allow_rotations) = allow_rotations_override {
+        packing_config.allow_item_rotation = allow_rotations;
+    }
     let packing_result = pack_objects_with_config(objects, container_blueprints, packing_config);
     println!(
         "📦 Ergebnis: {} Container, {} unverpackte Objekte",
@@ -531,11 +540,14 @@ async fn handle_pack_stream(
         Err(response) => return response,
     };
 
-    let (objects, container_blueprints) = request.into_parts();
+    let (objects, container_blueprints, allow_rotations_override) = request.into_parts();
 
     let (tx, rx) = mpsc::channel::<String>(32);
 
-    let packing_config = state.optimizer_config.packing_config();
+    let mut packing_config = state.optimizer_config.packing_config();
+    if let Some(allow_rotations) = allow_rotations_override {
+        packing_config.allow_item_rotation = allow_rotations;
+    }
 
     tokio::task::spawn_blocking(move || {
         let _ = pack_objects_with_progress(objects, container_blueprints, packing_config, |evt| {
