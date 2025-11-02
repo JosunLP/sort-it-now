@@ -3,23 +3,23 @@ use reqwest::header::HeaderMap;
 use serde::Deserialize;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::os::unix::fs::PermissionsExt;
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 use std::path::Path;
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 use std::path::PathBuf;
 
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 use sha2::{Digest, Sha256};
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 use tokio::fs;
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 use tokio::io::AsyncWriteExt;
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 use tokio::task;
 use tokio::task::JoinHandle;
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 use tokio_stream::StreamExt;
 
 use crate::config::UpdateConfig;
@@ -43,12 +43,12 @@ struct ReleaseResponse {
     assets: Vec<ReleaseAsset>,
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 struct TempDirCleanup {
     dir: Option<tempfile::TempDir>,
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 impl TempDirCleanup {
     fn new(dir: tempfile::TempDir) -> Self {
         Self { dir: Some(dir) }
@@ -78,7 +78,7 @@ impl TempDirCleanup {
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 impl Drop for TempDirCleanup {
     fn drop(&mut self) {
         self.cleanup();
@@ -210,14 +210,14 @@ async fn download_and_install_update(
     release: &ReleaseResponse,
     auth_token: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
     {
         let _ = auth_token;
         println!("ℹ️ Automatische Updates werden auf diesem Betriebssystem nicht unterstützt.");
         return Ok(());
     }
 
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
     {
         let asset_names = expected_asset_names(&release.tag_name);
         let asset = release
@@ -307,6 +307,9 @@ async fn download_and_install_update(
         #[cfg(target_os = "linux")]
         install_on_linux(&archive_path, temp_dir.path(), &release.tag_name).await?;
 
+        #[cfg(target_os = "macos")]
+        install_on_macos(&archive_path, temp_dir.path(), &release.tag_name).await?;
+
         #[cfg(target_os = "windows")]
         install_on_windows(&archive_path, temp_dir.path(), &release.tag_name).await?;
 
@@ -321,13 +324,30 @@ const TARGET_SUFFIX: &str = "linux-x86_64";
 #[cfg(target_os = "linux")]
 const TARGET_EXTENSION: &str = "tar.gz";
 
+#[cfg(target_os = "macos")]
+const TARGET_EXTENSION: &str = "tar.gz";
+
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+const TARGET_SUFFIX: &str = "macos-x86_64";
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+const TARGET_SUFFIX: &str = "macos-arm64";
+
+#[cfg(all(
+    target_os = "macos",
+    not(any(target_arch = "x86_64", target_arch = "aarch64"))
+))]
+compile_error!(
+    "Unsupported macOS architecture for updates; build target must be x86_64 or aarch64."
+);
+
 #[cfg(target_os = "windows")]
 const TARGET_SUFFIX: &str = "windows-x86_64";
 #[cfg(target_os = "windows")]
 const TARGET_EXTENSION: &str = "zip";
 
 fn expected_asset_names(tag: &str) -> Vec<String> {
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
     {
         let mut candidates = Vec::new();
         let base = format!("sort-it-now-{}-{}.{}", tag, TARGET_SUFFIX, TARGET_EXTENSION);
@@ -349,14 +369,14 @@ fn expected_asset_names(tag: &str) -> Vec<String> {
         candidates
     }
 
-    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
     {
         let _ = tag;
         Vec::new()
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 fn checksum_asset_names(asset_name: &str) -> Vec<String> {
     vec![
         format!("{}.sha256", asset_name),
@@ -365,7 +385,7 @@ fn checksum_asset_names(asset_name: &str) -> Vec<String> {
     ]
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 fn find_checksum_asset<'a>(
     assets: &'a [ReleaseAsset],
     asset_name: &str,
@@ -376,7 +396,7 @@ fn find_checksum_asset<'a>(
         .find(|asset| candidates.iter().any(|candidate| candidate == &asset.name))
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 fn parse_checksum_file(contents: &str) -> Option<String> {
     for line in contents.lines() {
         let trimmed = line.trim();
@@ -391,7 +411,7 @@ fn parse_checksum_file(contents: &str) -> Option<String> {
     None
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 async fn fetch_checksum(
     client: &reqwest::Client,
     checksum_asset: &ReleaseAsset,
@@ -556,8 +576,8 @@ fn format_wait(duration: Duration) -> String {
     parts.join(" ")
 }
 
-#[cfg(target_os = "linux")]
-async fn install_on_linux(
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+async fn install_on_unix(
     archive_path: &Path,
     extract_root: &Path,
     tag_name: &str,
@@ -637,7 +657,25 @@ async fn install_on_linux(
     Ok(())
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(target_os = "linux")]
+async fn install_on_linux(
+    archive_path: &Path,
+    extract_root: &Path,
+    tag_name: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    install_on_unix(archive_path, extract_root, tag_name).await
+}
+
+#[cfg(target_os = "macos")]
+async fn install_on_macos(
+    archive_path: &Path,
+    extract_root: &Path,
+    tag_name: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    install_on_unix(archive_path, extract_root, tag_name).await
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 fn bundle_directory(extract_root: &Path, tag_name: &str) -> PathBuf {
     extract_root.join(format!("sort-it-now-{}-{}", tag_name, TARGET_SUFFIX))
 }

@@ -60,9 +60,11 @@ Im Browser:
 
 ## 📦 Fertige Builds & Release-Pipeline
 
-Für Releases existiert ein GitHub-Actions-Workflow (`.github/workflows/release.yml`), der bei Tags im Format `v*` (oder manuell via _workflow_dispatch_) zwei Plattform-Pakete erzeugt:
+Für Releases existiert ein GitHub-Actions-Workflow (`.github/workflows/release.yml`), der bei Tags im Format `v*` (oder manuell via _workflow_dispatch_) Plattform-Pakete erzeugt:
 
 - **Linux (x86_64)**: `sort-it-now-<version>-linux-x86_64.tar.gz`
+- **macOS (ARM64/Apple Silicon)**: `sort-it-now-<version>-macos-arm64.tar.gz`
+- **macOS (x86_64/Intel)**: `sort-it-now-<version>-macos-x86_64.tar.gz`
 - **Windows (x86_64)**: `sort-it-now-<version>-windows-x86_64.zip`
 
 Jedes Paket enthält die vorkompilierte Binärdatei, die aktuelle `README.md` sowie ein Installationsskript.
