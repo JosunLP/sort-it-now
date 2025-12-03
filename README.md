@@ -47,8 +47,6 @@ Eine intelligente 3D-Verpackungsoptimierung mit interaktiver Visualisierung.
 cargo run
 ```
 
-Das optionale Feld `allow_rotations` aktiviert pro Anfrage die 90°-Rotationen. Wird es weggelassen, greifen die Standardeinstellungen (Umgebungsvariable bzw. UI-Schalter).
-
 Der Server läuft auf `http://localhost:8080`
 
 > 💡 **Konfigurationshinweis:** Kopiere bei Bedarf die Datei `.env.example` nach `.env`, um den API-Port, Host oder Update-Parameter anzupassen. Nicht gesetzte Werte fallen automatisch auf ihre Standardwerte zurück.
@@ -114,6 +112,8 @@ Verpackt Objekte in Container.
   "allow_rotations": true
 }
 ```
+
+Das optionale Feld `allow_rotations` aktiviert pro Anfrage die 90°-Rotationen. Wird es weggelassen, greifen die Standardeinstellungen (Umgebungsvariable bzw. UI-Schalter).
 
 **Response:**
 
