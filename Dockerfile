@@ -1,5 +1,5 @@
 # Build stage
-FROM rust:latest AS builder
+FROM rust:1.75 AS builder
 
 # Install required dependencies
 RUN apt-get update && apt-get install -y \
@@ -12,6 +12,7 @@ WORKDIR /app
 
 # Copy manifests
 COPY Cargo.toml ./
+# Note: Cargo.lock is gitignored in this project, so dependencies will resolve at build time
 
 # Copy source code
 COPY src ./src

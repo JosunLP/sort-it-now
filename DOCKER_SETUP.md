@@ -61,13 +61,13 @@ Nach der Veröffentlichung kann das Image folgendermaßen verwendet werden:
 
 ```bash
 # Neueste Version
-docker pull <dein-username>/sort-it-now:latest
+docker pull your-dockerhub-username/sort-it-now:latest
 
 # Spezifische Version
-docker pull <dein-username>/sort-it-now:1.0.0
+docker pull your-dockerhub-username/sort-it-now:1.0.0
 
 # Ausführen
-docker run -p 8080:8080 <dein-username>/sort-it-now:latest
+docker run -p 8080:8080 your-dockerhub-username/sort-it-now:latest
 ```
 
 ## Troubleshooting
