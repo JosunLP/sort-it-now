@@ -240,6 +240,8 @@ fn orientations_for(object: &Box3D, allow_rotation: bool) -> Vec<Box3D> {
 
     // Use HashSet for efficient deduplication
     // Convert dimensions to integer representation to avoid floating point comparison issues
+    // Scale factor matches EPS used in dims_almost_equal (1e-9) for consistent precision
+    const DIM_HASH_SCALE: f64 = 1e6;
     let mut seen = std::collections::HashSet::new();
     let mut unique: Vec<Box3D> = Vec::new();
     
@@ -247,9 +249,9 @@ fn orientations_for(object: &Box3D, allow_rotation: bool) -> Vec<Box3D> {
         // Create a key based on the actual dimensions (not sorted) 
         // Use integer representation for reliable hashing
         let key = (
-            (dims.0 * 1e9).round() as i64,
-            (dims.1 * 1e9).round() as i64,
-            (dims.2 * 1e9).round() as i64,
+            (dims.0 * DIM_HASH_SCALE).round() as i64,
+            (dims.1 * DIM_HASH_SCALE).round() as i64,
+            (dims.2 * DIM_HASH_SCALE).round() as i64,
         );
         
         if seen.insert(key) {
