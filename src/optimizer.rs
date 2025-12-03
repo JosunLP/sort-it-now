@@ -1538,6 +1538,90 @@ mod tests {
     }
 
     #[test]
+    fn orientation_deduplication_handles_equal_dimensions() {
+        // Test cube (all dimensions equal) - should produce only 1 unique orientation
+        let cube = Box3D {
+            id: 1,
+            dims: (50.0, 50.0, 50.0),
+            weight: 10.0,
+        };
+        let cube_orientations = orientations_for(&cube, true);
+        assert_eq!(
+            cube_orientations.len(),
+            1,
+            "Cube should produce only 1 unique orientation, got {}",
+            cube_orientations.len()
+        );
+        assert_eq!(cube_orientations[0].dims, (50.0, 50.0, 50.0));
+
+        // Test rectangular prism with two equal dimensions - should produce 3 unique orientations
+        // (30, 30, 60), (30, 60, 30), and (60, 30, 30)
+        let rect_prism = Box3D {
+            id: 2,
+            dims: (30.0, 30.0, 60.0),
+            weight: 10.0,
+        };
+        let rect_orientations = orientations_for(&rect_prism, true);
+        assert_eq!(
+            rect_orientations.len(),
+            3,
+            "Rectangular prism with two equal dimensions should produce 3 unique orientations, got {}",
+            rect_orientations.len()
+        );
+        
+        // Verify all orientations are unique
+        for i in 0..rect_orientations.len() {
+            for j in (i + 1)..rect_orientations.len() {
+                assert_ne!(
+                    rect_orientations[i].dims,
+                    rect_orientations[j].dims,
+                    "Orientations at indices {} and {} are duplicates: {:?}",
+                    i,
+                    j,
+                    rect_orientations[i].dims
+                );
+            }
+        }
+
+        // Test fully distinct dimensions - should produce 6 unique orientations
+        let distinct = Box3D {
+            id: 3,
+            dims: (20.0, 30.0, 40.0),
+            weight: 10.0,
+        };
+        let distinct_orientations = orientations_for(&distinct, true);
+        assert_eq!(
+            distinct_orientations.len(),
+            6,
+            "Object with all distinct dimensions should produce 6 unique orientations, got {}",
+            distinct_orientations.len()
+        );
+
+        // Verify all 6 orientations are unique
+        for i in 0..distinct_orientations.len() {
+            for j in (i + 1)..distinct_orientations.len() {
+                assert_ne!(
+                    distinct_orientations[i].dims,
+                    distinct_orientations[j].dims,
+                    "Orientations at indices {} and {} are duplicates: {:?}",
+                    i,
+                    j,
+                    distinct_orientations[i].dims
+                );
+            }
+        }
+
+        // Test with rotation disabled - should always return 1 orientation
+        let no_rotation = orientations_for(&distinct, false);
+        assert_eq!(
+            no_rotation.len(),
+            1,
+            "With rotation disabled, should produce only 1 orientation"
+        );
+        assert_eq!(no_rotation[0].dims, distinct.dims);
+    }
+
+    #[test]
     fn sample_pack_respects_weight_order() {
         let config = PackingConfig::default();
 
