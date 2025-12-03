@@ -264,11 +264,6 @@ fn orientations_for(object: &Box3D, allow_rotation: bool) -> Vec<Box3D> {
     unique
 }
 
-fn dims_almost_equal(a: (f64, f64, f64), b: (f64, f64, f64)) -> bool {
-    const EPS: f64 = 1e-9;
-    (a.0 - b.0).abs() <= EPS && (a.1 - b.1).abs() <= EPS && (a.2 - b.2).abs() <= EPS
-}
-
 /// Support-Kennzahlen pro Objekt.
 #[derive(Clone, Debug, serde::Serialize, ToSchema)]
 pub struct SupportDiagnostics {
