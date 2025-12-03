@@ -238,26 +238,30 @@ fn orientations_for(object: &Box3D, allow_rotation: bool) -> Vec<Box3D> {
         (h, d, w),
     ];
 
+    // Use HashSet for efficient deduplication
+    // Convert dimensions to integer representation to avoid floating point comparison issues
+    // Scale factor provides precision of 1e-6 units while avoiding overflow for typical dimensions
+    const DIM_HASH_SCALE: f64 = 1e6;
+    let mut seen = std::collections::HashSet::new();
     let mut unique: Vec<Box3D> = Vec::new();
-    for dims in permutations.into_iter() {
-        if unique
-            .iter()
-            .any(|existing| dims_almost_equal(existing.dims, dims))
-        {
-            continue;
-        }
 
-        let mut rotated = object.clone();
-        rotated.dims = dims;
-        unique.push(rotated);
+    for dims in permutations.into_iter() {
+        // Create a key based on the actual dimensions (not sorted)
+        // Use integer representation for reliable hashing
+        let key = (
+            (dims.0 * DIM_HASH_SCALE).round() as i64,
+            (dims.1 * DIM_HASH_SCALE).round() as i64,
+            (dims.2 * DIM_HASH_SCALE).round() as i64,
+        );
+
+        if seen.insert(key) {
+            let mut rotated = object.clone();
+            rotated.dims = dims;
+            unique.push(rotated);
+        }
     }
 
     unique
-}
-
-fn dims_almost_equal(a: (f64, f64, f64), b: (f64, f64, f64)) -> bool {
-    const EPS: f64 = 1e-9;
-    (a.0 - b.0).abs() <= EPS && (a.1 - b.1).abs() <= EPS && (a.2 - b.2).abs() <= EPS
 }
 
 /// Support-Kennzahlen pro Objekt.
@@ -588,7 +592,7 @@ pub fn pack_objects_with_progress(
     'object_loop: for obj in objects {
         let orientations = orientations_for(&obj, config.allow_item_rotation);
 
-        for oriented in orientations {
+        for oriented in &orientations {
             // Versuche, in bestehenden Containern zu platzieren
             for idx in 0..containers.len() {
                 if !containers[idx].can_fit(&oriented) {
@@ -597,7 +601,7 @@ pub fn pack_objects_with_progress(
 
                 if let Some(position) = find_stable_position(&oriented, &containers[idx], &config) {
                     containers[idx].placed.push(PlacedBox {
-                        object: oriented,
+                        object: oriented.clone(),
                         position,
                     });
                     let total_w = containers[idx].total_weight();
@@ -655,7 +659,7 @@ pub fn pack_objects_with_progress(
                     });
 
                     new_container.placed.push(PlacedBox {
-                        object: oriented,
+                        object: oriented.clone(),
                         position,
                     });
                     let total_w = new_container.total_weight();
@@ -1531,6 +1535,92 @@ mod tests {
         assert_eq!(result_with_rotation.containers.len(), 1);
         let placed_dims = result_with_rotation.containers[0].placed[0].object.dims;
         assert_eq!(placed_dims, (60.0, 80.0, 40.0));
+    }
+
+    #[test]
+    fn orientation_deduplication_handles_equal_dimensions() {
+        // Test cube (all dimensions equal) - should produce only 1 unique orientation
+        let cube = Box3D {
+            id: 1,
+            dims: (50.0, 50.0, 50.0),
+            weight: 10.0,
+        };
+        let cube_orientations = orientations_for(&cube, true);
+        assert_eq!(
+            cube_orientations.len(),
+            1,
+            "Cube should produce only 1 unique orientation, got {}",
+            cube_orientations.len()
+        );
+        assert_eq!(cube_orientations[0].dims, (50.0, 50.0, 50.0));
+
+        // Test rectangular prism with two equal dimensions - should produce 3 unique orientations
+        // (30, 30, 60), (30, 60, 30), and (60, 30, 30)
+        let rect_prism = Box3D {
+            id: 2,
+            dims: (30.0, 30.0, 60.0),
+            weight: 10.0,
+        };
+        let rect_orientations = orientations_for(&rect_prism, true);
+        assert_eq!(
+            rect_orientations.len(),
+            3,
+            "Rectangular prism with two equal dimensions should produce 3 unique orientations, got {}",
+            rect_orientations.len()
+        );
+
+        // Verify all orientations are unique
+        // Using O(n²) is acceptable here since we're checking only 3 items
+        for i in 0..rect_orientations.len() {
+            for j in (i + 1)..rect_orientations.len() {
+                assert_ne!(
+                    rect_orientations[i].dims,
+                    rect_orientations[j].dims,
+                    "Orientations at indices {} and {} are duplicates: {:?}",
+                    i,
+                    j,
+                    rect_orientations[i].dims
+                );
+            }
+        }
+
+        // Test fully distinct dimensions - should produce 6 unique orientations
+        let distinct = Box3D {
+            id: 3,
+            dims: (20.0, 30.0, 40.0),
+            weight: 10.0,
+        };
+        let distinct_orientations = orientations_for(&distinct, true);
+        assert_eq!(
+            distinct_orientations.len(),
+            6,
+            "Object with all distinct dimensions should produce 6 unique orientations, got {}",
+            distinct_orientations.len()
+        );
+
+        // Verify all 6 orientations are unique
+        // Using O(n²) is acceptable here since we're checking only 6 items
+        for i in 0..distinct_orientations.len() {
+            for j in (i + 1)..distinct_orientations.len() {
+                assert_ne!(
+                    distinct_orientations[i].dims,
+                    distinct_orientations[j].dims,
+                    "Orientations at indices {} and {} are duplicates: {:?}",
+                    i,
+                    j,
+                    distinct_orientations[i].dims
+                );
+            }
+        }
+
+        // Test with rotation disabled - should always return 1 orientation
+        let no_rotation = orientations_for(&distinct, false);
+        assert_eq!(
+            no_rotation.len(),
+            1,
+            "With rotation disabled, should produce only 1 orientation"
+        );
+        assert_eq!(no_rotation[0].dims, distinct.dims);
     }
 
     #[test]

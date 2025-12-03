@@ -12,6 +12,11 @@ let liveUnplaced = [];
 let es = null;
 let liveDiagnosticsSummary = null;
 
+// Epsilon constants for floating point comparisons
+// These match the Rust backend configuration (general_epsilon = 1e-6)
+const EPSILON_COMPARISON = 1e-6; // For dimension comparisons and fitting checks
+const EPSILON_DEDUPLICATION = 1e-6; // For exact equality checks in deduplication (matches backend)
+
 // Konfigurierbare Parameter
 let config = {
   containers: [
@@ -40,7 +45,7 @@ function computeNextObjectId() {
   );
 }
 
-function dimsAlmostEqual(a, b, epsilon = 1e-9) {
+function dimsAlmostEqual(a, b, epsilon = EPSILON_DEDUPLICATION) {
   return (
     Math.abs(a[0] - b[0]) <= epsilon &&
     Math.abs(a[1] - b[1]) <= epsilon &&
@@ -74,9 +79,9 @@ function fitsContainerWithRotation(objectDims, containerDims, allowRotation) {
 
   return orientations.some(([w, d, h]) => {
     return (
-      w <= containerDims[0] + 1e-6 &&
-      d <= containerDims[1] + 1e-6 &&
-      h <= containerDims[2] + 1e-6
+      w <= containerDims[0] + EPSILON_COMPARISON &&
+      d <= containerDims[1] + EPSILON_COMPARISON &&
+      h <= containerDims[2] + EPSILON_COMPARISON
     );
   });
 }
