@@ -240,7 +240,7 @@ fn orientations_for(object: &Box3D, allow_rotation: bool) -> Vec<Box3D> {
 
     // Use HashSet for efficient deduplication
     // Convert dimensions to integer representation to avoid floating point comparison issues
-    // Scale factor provides microsecond precision while avoiding overflow for typical dimensions
+    // Scale factor provides precision of 1e-6 units while avoiding overflow for typical dimensions
     const DIM_HASH_SCALE: f64 = 1e6;
     let mut seen = std::collections::HashSet::new();
     let mut unique: Vec<Box3D> = Vec::new();
