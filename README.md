@@ -75,6 +75,35 @@ Die Artefakte werden sowohl als Workflow-Artefakte hochgeladen als auch automati
 - Linux/macOS: Im entpackten Ordner `./install.sh` ausführen (optional mit `sudo`), um `sort_it_now` nach `/usr/local/bin` zu kopieren.
 - Windows: `install.ps1` (PowerShell) ausführen. Standardmäßig wird nach `%ProgramFiles%\sort-it-now` installiert und der Pfad der Benutzer-Umgebungsvariable hinzugefügt.
 
+### Docker
+
+Für jeden Release wird automatisch ein Docker-Image auf [Docker Hub](https://hub.docker.com/) veröffentlicht. Die Images werden für mehrere Architekturen (linux/amd64, linux/arm64) bereitgestellt.
+
+**Docker Image ausführen:**
+
+```bash
+docker run -p 8080:8080 <username>/sort-it-now:latest
+```
+
+**Mit Umgebungsvariablen:**
+
+```bash
+docker run -p 8080:8080 \
+  -e SORT_IT_NOW_API_HOST=0.0.0.0 \
+  -e SORT_IT_NOW_API_PORT=8080 \
+  -e SORT_IT_NOW_SKIP_UPDATE_CHECK=1 \
+  <username>/sort-it-now:latest
+```
+
+**Eigenes Image bauen:**
+
+```bash
+docker build -t sort-it-now .
+docker run -p 8080:8080 sort-it-now
+```
+
+Der Server ist dann unter `http://localhost:8080` verfügbar.
+
 ## 🔔 Automatische Updates beim Start
 
 Beim Start prüft der Dienst im Hintergrund die neuesten GitHub-Releases (`JosunLP/sort-it-now`). Wird eine neuere Version gefunden, lädt der Updater das passende Release-Paket herunter und führt das Installationsskript für die aktuelle Plattform aus. Dadurch wird das Update – soweit möglich – automatisch eingespielt. Auf Windows wird bei gesperrter `sort_it_now.exe` ersatzweise eine `sort_it_now.new.exe` abgelegt.
