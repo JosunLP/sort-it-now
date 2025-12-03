@@ -271,8 +271,8 @@ PackingConfig {
     support_ratio: 0.6,          // 60% Mindestauflage
     height_epsilon: 1e-3,        // Höhen-Toleranz
     general_epsilon: 1e-6,       // Allgemeine Toleranz
-  balance_limit_ratio: 0.45,   // Max. Schwerpunkt-Abweichung
-  allow_item_rotation: false,  // Objektrotationen aktivieren (per Default deaktiviert)
+    balance_limit_ratio: 0.45,   // Max. Schwerpunkt-Abweichung
+    allow_item_rotation: false,  // Objektrotationen aktivieren (per Default deaktiviert)
 }
 ```
 
