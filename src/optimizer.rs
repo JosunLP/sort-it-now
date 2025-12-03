@@ -246,14 +246,14 @@ fn orientations_for(object: &Box3D, allow_rotation: bool) -> Vec<Box3D> {
     let mut unique: Vec<Box3D> = Vec::new();
 
     for dims in permutations.into_iter() {
-        // Create a key based on the actual dimensions (not sorted) 
+        // Create a key based on the actual dimensions (not sorted)
         // Use integer representation for reliable hashing
         let key = (
             (dims.0 * DIM_HASH_SCALE).round() as i64,
             (dims.1 * DIM_HASH_SCALE).round() as i64,
             (dims.2 * DIM_HASH_SCALE).round() as i64,
         );
-        
+
         if seen.insert(key) {
             let mut rotated = object.clone();
             rotated.dims = dims;

@@ -15,7 +15,7 @@ let liveDiagnosticsSummary = null;
 // Epsilon constants for floating point comparisons
 // These match the Rust backend configuration (general_epsilon = 1e-6)
 const EPSILON_COMPARISON = 1e-6; // For dimension comparisons and fitting checks
-const EPSILON_DEDUPLICATION = 1e-9; // For exact equality checks in deduplication
+const EPSILON_DEDUPLICATION = 1e-6; // For exact equality checks in deduplication (matches backend)
 
 // Konfigurierbare Parameter
 let config = {
