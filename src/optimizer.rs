@@ -238,18 +238,25 @@ fn orientations_for(object: &Box3D, allow_rotation: bool) -> Vec<Box3D> {
         (h, d, w),
     ];
 
+    // Use HashSet for efficient deduplication
+    // Convert dimensions to integer representation to avoid floating point comparison issues
+    let mut seen = std::collections::HashSet::new();
     let mut unique: Vec<Box3D> = Vec::new();
+    
     for dims in permutations.into_iter() {
-        if unique
-            .iter()
-            .any(|existing| dims_almost_equal(existing.dims, dims))
-        {
-            continue;
+        // Create a key based on the actual dimensions (not sorted) 
+        // Use integer representation for reliable hashing
+        let key = (
+            (dims.0 * 1e9).round() as i64,
+            (dims.1 * 1e9).round() as i64,
+            (dims.2 * 1e9).round() as i64,
+        );
+        
+        if seen.insert(key) {
+            let mut rotated = object.clone();
+            rotated.dims = dims;
+            unique.push(rotated);
         }
-
-        let mut rotated = object.clone();
-        rotated.dims = dims;
-        unique.push(rotated);
     }
 
     unique
@@ -588,7 +595,7 @@ pub fn pack_objects_with_progress(
     'object_loop: for obj in objects {
         let orientations = orientations_for(&obj, config.allow_item_rotation);
 
-        for oriented in orientations {
+        for oriented in &orientations {
             // Versuche, in bestehenden Containern zu platzieren
             for idx in 0..containers.len() {
                 if !containers[idx].can_fit(&oriented) {
@@ -597,7 +604,7 @@ pub fn pack_objects_with_progress(
 
                 if let Some(position) = find_stable_position(&oriented, &containers[idx], &config) {
                     containers[idx].placed.push(PlacedBox {
-                        object: oriented,
+                        object: oriented.clone(),
                         position,
                     });
                     let total_w = containers[idx].total_weight();
@@ -655,7 +662,7 @@ pub fn pack_objects_with_progress(
                     });
 
                     new_container.placed.push(PlacedBox {
-                        object: oriented,
+                        object: oriented.clone(),
                         position,
                     });
                     let total_w = new_container.total_weight();
