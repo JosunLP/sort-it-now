@@ -1,2 +1,14 @@
 /target
 Cargo.lock
+
+# Bun/Node
+node_modules/
+bun.lockb
+
+# Build artifacts
+sort-it-now
+sort-it-now.exe
+dist/
+
+# Environment
+.env

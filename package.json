@@ -1,14 +1,24 @@
 {
   "name": "sort-it-now",
   "version": "1.0.0",
-  "description": "",
+  "description": "3D Box Packing Optimizer - TypeScript/Bun version",
   "license": "LicenseRef-NCSL-1.0",
   "author": "",
   "scripts": {
-    "test": "cargo test",
-    "build": "cargo build --release",
-    "start": "cargo run --release",
-    "format": "cargo fmt --all",
-    "up": "cargo fmt && cargo clean && cargo build && cargo run"
+    "dev": "bun run --watch ts-src/index.ts",
+    "start": "bun run ts-src/index.ts",
+    "build": "bun build ts-src/index.ts --compile --outfile sort-it-now",
+    "build:rust": "cargo build --release",
+    "test:rust": "cargo test",
+    "format": "cargo fmt --all"
+  },
+  "module": "ts-src/index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
   }
 }
