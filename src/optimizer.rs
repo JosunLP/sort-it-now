@@ -1568,8 +1568,9 @@ mod tests {
             "Rectangular prism with two equal dimensions should produce 3 unique orientations, got {}",
             rect_orientations.len()
         );
-        
+
         // Verify all orientations are unique
+        // Using O(n²) is acceptable here since we're checking only 3 items
         for i in 0..rect_orientations.len() {
             for j in (i + 1)..rect_orientations.len() {
                 assert_ne!(
@@ -1598,6 +1599,7 @@ mod tests {
         );
 
         // Verify all 6 orientations are unique
+        // Using O(n²) is acceptable here since we're checking only 6 items
         for i in 0..distinct_orientations.len() {
             for j in (i + 1)..distinct_orientations.len() {
                 assert_ne!(
