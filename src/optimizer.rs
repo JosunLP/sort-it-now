@@ -244,7 +244,7 @@ fn orientations_for(object: &Box3D, allow_rotation: bool) -> Vec<Box3D> {
     const DIM_HASH_SCALE: f64 = 1e6;
     let mut seen = std::collections::HashSet::new();
     let mut unique: Vec<Box3D> = Vec::new();
-    
+
     for dims in permutations.into_iter() {
         // Create a key based on the actual dimensions (not sorted) 
         // Use integer representation for reliable hashing
