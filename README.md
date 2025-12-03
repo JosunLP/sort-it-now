@@ -79,6 +79,8 @@ Die Artefakte werden sowohl als Workflow-Artefakte hochgeladen als auch automati
 
 Für jeden Release wird automatisch ein Docker-Image auf [Docker Hub](https://hub.docker.com/) veröffentlicht. Die Images werden für mehrere Architekturen (linux/amd64, linux/arm64) bereitgestellt.
 
+> 📖 **Setup-Anleitung:** Siehe [DOCKER_SETUP.md](DOCKER_SETUP.md) für eine detaillierte Anleitung zur Einrichtung der Docker Hub Deployment-Pipeline.
+
 **Docker Image ausführen:**
 
 ```bash
