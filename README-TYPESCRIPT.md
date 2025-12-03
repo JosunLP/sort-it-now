@@ -36,6 +36,9 @@ bun run ts-src/index.ts
 
 # Mit Auto-Reload
 bun run dev
+
+# Beispiele ausführen
+bun run example
 ```
 
 ### Produktions-Build
@@ -227,6 +230,23 @@ Funktionen: `createBox3D()`, `boxVolume()`, `boxBaseArea()`, `containerCanFit()`
 - **Binary Größe**: ~100MB (enthält Bun Runtime)
 
 ## 🧪 Testen
+
+### Programmatische Verwendung
+
+Die Bibliothek kann direkt in TypeScript/JavaScript Code verwendet werden:
+
+```bash
+# Beispiele ausführen
+bun run example
+```
+
+Siehe `ts-src/example.ts` für verschiedene Verwendungsbeispiele:
+- Einfaches Packing-Szenario
+- Mehrere Container-Typen
+- Live-Progress-Tracking
+- Benutzerdefinierte Konfiguration
+
+### API-Tests
 
 ```bash
 # API testen

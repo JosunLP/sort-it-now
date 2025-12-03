@@ -8,6 +8,7 @@
     "dev": "bun run --watch ts-src/index.ts",
     "start": "bun run ts-src/index.ts",
     "build": "bun build ts-src/index.ts --compile --outfile sort-it-now",
+    "example": "bun run ts-src/example.ts",
     "build:rust": "cargo build --release",
     "test:rust": "cargo test",
     "format": "cargo fmt --all"
