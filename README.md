@@ -83,8 +83,10 @@ Für jeden Release wird automatisch ein Docker-Image auf [Docker Hub](https://hu
 
 **Docker Image ausführen:**
 
+> **Hinweis:** Ersetze `<username>` durch den Docker Hub Benutzernamen des Projekt-Maintainers.
+
 ```bash
-docker run -p 8080:8080 your-dockerhub-username/sort-it-now:latest
+docker run -p 8080:8080 <username>/sort-it-now:latest
 ```
 
 **Mit Umgebungsvariablen:**
@@ -94,7 +96,7 @@ docker run -p 8080:8080 \
   -e SORT_IT_NOW_API_HOST=0.0.0.0 \
   -e SORT_IT_NOW_API_PORT=8080 \
   -e SORT_IT_NOW_SKIP_UPDATE_CHECK=1 \
-  your-dockerhub-username/sort-it-now:latest
+  <username>/sort-it-now:latest
 ```
 
 **Eigenes Image bauen:**
