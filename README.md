@@ -103,7 +103,7 @@ docker run -p 8080:8080 \
 
 ```bash
 docker build -t sort-it-now .
-docker run -p 8080:8080 sort-it-now
+docker run -p 8080:8080 -e SORT_IT_NOW_SKIP_UPDATE_CHECK=1 sort-it-now
 ```
 
 Der Server ist dann unter `http://localhost:8080` verfügbar.
