@@ -167,6 +167,7 @@ impl OptimizerConfig {
     const GENERAL_EPSILON_VAR: &'static str = "SORT_IT_NOW_PACKING_GENERAL_EPSILON";
     const BALANCE_RATIO_VAR: &'static str = "SORT_IT_NOW_PACKING_BALANCE_LIMIT_RATIO";
     const FOOTPRINT_TOLERANCE_VAR: &'static str = "SORT_IT_NOW_PACKING_FOOTPRINT_TOLERANCE";
+    const ALLOW_ROTATION_VAR: &'static str = "SORT_IT_NOW_PACKING_ALLOW_ROTATIONS";
 
     fn from_env() -> Self {
         let grid_step = load_f64_with_warning(
@@ -218,6 +219,10 @@ impl OptimizerConfig {
             "Warnung: Angepasste Footprint-Gruppierung kann zu unerwarteten Platzierungen führen",
         );
 
+        let allow_item_rotation = env_string(Self::ALLOW_ROTATION_VAR)
+            .and_then(|raw| parse_bool(&raw, Self::ALLOW_ROTATION_VAR))
+            .unwrap_or(PackingConfig::DEFAULT_ALLOW_ITEM_ROTATION);
+
         let packing = PackingConfig::builder()
             .grid_step(grid_step)
             .support_ratio(support_ratio)
@@ -225,6 +230,7 @@ impl OptimizerConfig {
             .general_epsilon(general_epsilon)
             .balance_limit_ratio(balance_limit_ratio)
             .footprint_cluster_tolerance(footprint_cluster_tolerance)
+            .allow_item_rotation(allow_item_rotation)
             .build();
 
         Self { packing }
@@ -251,6 +257,20 @@ fn env_string(name: &str) -> Option<String> {
             eprintln!(
                 "⚠️ Zugriff auf {} fehlgeschlagen: {}. Verwende Standardwert.",
                 name, err
+            );
+            None
+        }
+    }
+}
+
+fn parse_bool(raw: &str, var_name: &str) -> Option<bool> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "y" | "on" => Some(true),
+        "0" | "false" | "no" | "n" | "off" => Some(false),
+        other => {
+            eprintln!(
+                "⚠️ Konnte {} ('{}') nicht als booleschen Wert interpretieren. Verwende Standardwert.",
+                var_name, other
             );
             None
         }

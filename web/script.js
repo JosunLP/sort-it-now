@@ -12,6 +12,11 @@ let liveUnplaced = [];
 let es = null;
 let liveDiagnosticsSummary = null;
 
+// Epsilon constants for floating point comparisons
+// These match the Rust backend configuration (general_epsilon = 1e-6)
+const EPSILON_COMPARISON = 1e-6; // For dimension comparisons and fitting checks
+const EPSILON_DEDUPLICATION = 1e-6; // For exact equality checks in deduplication (matches backend)
+
 // Konfigurierbare Parameter
 let config = {
   containers: [
@@ -28,6 +33,7 @@ let config = {
     { id: 7, dims: [25, 30, 10], weight: 40 },
     { id: 8, dims: [35, 20, 10], weight: 60 },
   ],
+  allowRotations: false,
 };
 
 function computeNextObjectId() {
@@ -37,6 +43,47 @@ function computeNextObjectId() {
       return id > max ? id : max;
     }, 0) + 1
   );
+}
+
+function dimsAlmostEqual(a, b, epsilon = EPSILON_DEDUPLICATION) {
+  return (
+    Math.abs(a[0] - b[0]) <= epsilon &&
+    Math.abs(a[1] - b[1]) <= epsilon &&
+    Math.abs(a[2] - b[2]) <= epsilon
+  );
+}
+
+function generateOrientations(dims) {
+  const [w, d, h] = dims;
+  const variants = [
+    [w, d, h],
+    [w, h, d],
+    [d, w, h],
+    [d, h, w],
+    [h, w, d],
+    [h, d, w],
+  ];
+
+  return variants.reduce((unique, current) => {
+    if (!unique.some((existing) => dimsAlmostEqual(existing, current))) {
+      unique.push(current);
+    }
+    return unique;
+  }, []);
+}
+
+function fitsContainerWithRotation(objectDims, containerDims, allowRotation) {
+  const orientations = allowRotation
+    ? generateOrientations(objectDims)
+    : [objectDims];
+
+  return orientations.some(([w, d, h]) => {
+    return (
+      w <= containerDims[0] + EPSILON_COMPARISON &&
+      d <= containerDims[1] + EPSILON_COMPARISON &&
+      h <= containerDims[2] + EPSILON_COMPARISON
+    );
+  });
 }
 
 const scene = new THREE.Scene();
@@ -260,6 +307,11 @@ function openConfigModal() {
 
   renderContainerTypesList();
   renderObjectsList();
+
+  const rotationsCheckbox = document.getElementById('allowRotationsCheckbox');
+  if (rotationsCheckbox) {
+    rotationsCheckbox.checked = !!config.allowRotations;
+  }
 }
 
 function closeConfigModal() {
@@ -505,10 +557,10 @@ function collectConfigIssues() {
 
   config.objects.forEach((obj) => {
     const validContainers = config.containers.filter((container) => {
-      return (
-        obj.dims[0] <= container.dims[0] + 1e-6 &&
-        obj.dims[1] <= container.dims[1] + 1e-6 &&
-        obj.dims[2] <= container.dims[2] + 1e-6
+      return fitsContainerWithRotation(
+        obj.dims,
+        container.dims,
+        config.allowRotations === true
       );
     });
 
@@ -516,7 +568,9 @@ function collectConfigIssues() {
       issues.push({
         id: obj.id,
         type: 'dimensions',
-        details: 'Kein Verpackungstyp bietet ausreichend Platz.',
+        details: config.allowRotations
+          ? 'Kein Verpackungstyp bietet ausreichend Platz, selbst mit Rotation.'
+          : 'Kein Verpackungstyp bietet ausreichend Platz.',
       });
       return;
     }
@@ -579,6 +633,7 @@ async function fetchPacking() {
         max_weight: container.maxWeight,
       })),
       objects: config.objects,
+      allow_rotations: config.allowRotations === true,
     };
     const response = await fetch('http://localhost:8080/pack', {
       method: 'POST',
@@ -735,6 +790,14 @@ document
   .getElementById('addContainerTypeBtn')
   .addEventListener('click', addContainerType);
 document.getElementById('saveConfigBtn').addEventListener('click', saveConfig);
+const allowRotationsCheckbox = document.getElementById(
+  'allowRotationsCheckbox'
+);
+if (allowRotationsCheckbox) {
+  allowRotationsCheckbox.addEventListener('change', (event) => {
+    config.allowRotations = !!event.target.checked;
+  });
+}
 
 window.addEventListener('click', (event) => {
   const modal = document.getElementById('configModal');
@@ -804,6 +867,7 @@ function startLivePacking() {
       max_weight: container.maxWeight,
     })),
     objects: config.objects,
+    allow_rotations: config.allowRotations === true,
   };
 
   fetch('http://localhost:8080/pack_stream', {

@@ -12,6 +12,7 @@ Eine intelligente 3D-Verpackungsoptimierung mit interaktiver Visualisierung.
   - Schwerpunkt-Balance
   - Schichtung (schwere Objekte unten)
 - **Automatische Multi-Container-Verwaltung**
+- **Optionale Objektrotationen** (per Request-Flag oder Umgebungsvariable aktivierbar)
 - **Umfassende Unit-Tests**
 - **REST-API** mit JSON-Kommunikation
 - **OpenAPI & Swagger UI** mit live Dokumentation unter `/docs`
@@ -29,6 +30,7 @@ Eine intelligente 3D-Verpackungsoptimierung mit interaktiver Visualisierung.
   - Gesamtgewicht
   - Volumen-Auslastung
   - Schwerpunkt-Position
+- **Konfigurationsmodal** mit Schalter für Objektrotationen
 - **Responsive Design**
 
 ## 🚀 Installation & Start
@@ -106,9 +108,12 @@ Verpackt Objekte in Container.
   "objects": [
     { "id": 1, "dims": [30.0, 30.0, 10.0], "weight": 50.0 },
     { "id": 2, "dims": [20.0, 50.0, 15.0], "weight": 30.0 }
-  ]
+  ],
+  "allow_rotations": true
 }
 ```
+
+Das optionale Feld `allow_rotations` aktiviert pro Anfrage die 90°-Rotationen. Wird es weggelassen, greifen die Standardeinstellungen (Umgebungsvariable bzw. UI-Schalter).
 
 **Response:**
 
@@ -254,6 +259,7 @@ Die Anwendung lädt beim Start optional eine `.env`-Datei (mittels [`dotenvy`](h
 | `SORT_IT_NOW_PACKING_HEIGHT_EPSILON`        | `1e-3`        | ⚠️ Toleranz für Höhenvergleiche; Werte zu groß oder klein beeinflussen Stabilitätschecks.                                                        |
 | `SORT_IT_NOW_PACKING_GENERAL_EPSILON`       | `1e-6`        | ⚠️ Allgemeine numerische Toleranz; extreme Werte können zu falschen Kollisionsergebnissen führen.                                                |
 | `SORT_IT_NOW_PACKING_BALANCE_LIMIT_RATIO`   | `0.45`        | ⚠️ Grenzwert für Schwerpunktabweichung; höhere Werte erlauben stärkere Schiefstellungen.                                                         |
+| `SORT_IT_NOW_PACKING_ALLOW_ROTATIONS`       | `false`       | Aktiviert alle 90°-Rotationen der Objekte. Kann auch pro Request über `allow_rotations` gesetzt werden.                                          |
 
 Eine beispielhafte Datei findest du in `.env.example`.
 
@@ -266,6 +272,7 @@ PackingConfig {
     height_epsilon: 1e-3,        // Höhen-Toleranz
     general_epsilon: 1e-6,       // Allgemeine Toleranz
     balance_limit_ratio: 0.45,   // Max. Schwerpunkt-Abweichung
+    allow_item_rotation: false,  // Objektrotationen aktivieren (per Default deaktiviert)
 }
 ```
 
@@ -287,7 +294,7 @@ const COLOR_PALETTE = [...];            // Farben für Objekte
 
 ## 🐛 Bekannte Einschränkungen
 
-1. **Rotation**: Objekte werden nicht rotiert (Fixed Orientation)
+1. **Rotation**: Nur 90°-Rotationen; komplexe Freiform-Rotationen sind nicht abgedeckt
 2. **Dynamische Stabilität**: Keine physikalische Simulation
 3. **Optimales Packing**: Heuristik, kein garantiertes Optimum
 4. **Browser-Support**: Benötigt WebGL-Unterstützung
