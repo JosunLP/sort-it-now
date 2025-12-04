@@ -1,7 +1,7 @@
 # Build stage
 FROM rust:1 AS builder
 
-# Install required dependencies
+# Install build dependencies
 RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
@@ -33,7 +33,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for security
-RUN useradd -r -u 10001 -s /sbin/nologin appuser
+RUN useradd -r -u 10001 -s /usr/sbin/nologin appuser
 
 WORKDIR /app
 

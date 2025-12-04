@@ -12,7 +12,7 @@ Diese Anleitung beschreibt, wie man die automatische Docker-Veröffentlichung au
 1. Gehe zu https://hub.docker.com/settings/security
 2. Klicke auf "New Access Token"
 3. Gib einen Namen ein (z.B. "github-actions-sort-it-now")
-4. Wähle die Berechtigung "Read, Write, Delete" aus
+4. Wähle die Berechtigung "Read, Write" aus
 5. Klicke auf "Generate"
 6. **Wichtig:** Kopiere das Token sofort - es wird nur einmal angezeigt!
 
@@ -52,7 +52,7 @@ Nach erfolgreichem Workflow-Durchlauf:
 1. Gehe zu https://hub.docker.com/
 2. Navigiere zu deinem Repository
 3. Das Image sollte mit den entsprechenden Tags verfügbar sein:
-   - `latest` (für den Standard-Branch)
+   - `latest` (wird bei jedem Release mit einem `v*` Tag vergeben)
    - Versions-Tags (z.B. `1.0.0`, `1.0`, `1`)
 
 ## Docker Image verwenden

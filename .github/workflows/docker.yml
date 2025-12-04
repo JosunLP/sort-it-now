@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "v*"
+  # Manual dispatch builds and pushes images based on metadata-action tags
   workflow_dispatch:
 
 permissions:
@@ -25,6 +26,7 @@ jobs:
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
+        # Note: Ensure DOCKER_USERNAME and DOCKER_PASSWORD secrets are configured
 
       - name: Extract metadata for Docker
         id: meta
