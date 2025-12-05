@@ -69,7 +69,7 @@ docker pull <your-dockerhub-username>/sort-it-now:latest
 docker pull <your-dockerhub-username>/sort-it-now:1.0.0
 
 # Ausführen
-docker run -p 8080:8080 <your-dockerhub-username>/sort-it-now:latest
+docker run -p 8080:8080 -e SORT_IT_NOW_SKIP_UPDATE_CHECK=1 <your-dockerhub-username>/sort-it-now:latest
 ```
 
 ## Troubleshooting

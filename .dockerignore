@@ -9,7 +9,6 @@ target/
 # Documentation
 *.md
 CHANGELOG
-CONCEPT.md
 LICENSE
 
 # Environment files
