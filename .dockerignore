@@ -1,0 +1,23 @@
+# Git files
+.git
+.gitignore
+.github
+
+# Rust build artifacts
+target/
+
+# Documentation
+*.md
+CHANGELOG
+LICENSE
+
+# Environment files
+.env
+.env.example
+
+# Scripts
+scripts/
+
+# Node files
+package.json
+node_modules/
