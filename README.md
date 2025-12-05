@@ -146,7 +146,7 @@ Verpackt Objekte in Container.
 }
 ```
 
-Das optionale Feld `allow_rotations` aktiviert pro Anfrage die 90°-Rotationen. Wird es weggelassen, greifen die Standardeinstellungen (Umgebungsvariable bzw. UI-Schalter).
+Das optionale Feld `allow_rotations` aktiviert pro Anfrage die 90°-Rotationen. Wird es weggelassen, greift die Standardeinstellung aus der Umgebungsvariable `SORT_IT_NOW_PACKING_ALLOW_ROTATIONS` (default: false).
 
 **Response:**
 
