@@ -122,7 +122,10 @@ pub struct PackRequest {
     pub containers: Vec<ContainerRequest>,
     pub objects: Vec<Box3D>,
     #[serde(default)]
-    #[schema(default = false, nullable = true)]
+    #[schema(
+        nullable = true,
+        description = "Enable 90° object rotations. If not specified, uses the value from SORT_IT_NOW_PACKING_ALLOW_ROTATIONS environment variable (default: false)"
+    )]
     pub allow_rotations: Option<bool>,
 }
 
