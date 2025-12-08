@@ -324,12 +324,12 @@ mod tests {
         assert_eq!(parse_bool("yes", "TEST_VAR"), Some(true));
         assert_eq!(parse_bool("y", "TEST_VAR"), Some(true));
         assert_eq!(parse_bool("on", "TEST_VAR"), Some(true));
-        
+
         // Test case insensitivity
         assert_eq!(parse_bool("TRUE", "TEST_VAR"), Some(true));
         assert_eq!(parse_bool("Yes", "TEST_VAR"), Some(true));
         assert_eq!(parse_bool("ON", "TEST_VAR"), Some(true));
-        
+
         // Test with whitespace
         assert_eq!(parse_bool(" true ", "TEST_VAR"), Some(true));
         assert_eq!(parse_bool("  1  ", "TEST_VAR"), Some(true));
@@ -342,12 +342,12 @@ mod tests {
         assert_eq!(parse_bool("no", "TEST_VAR"), Some(false));
         assert_eq!(parse_bool("n", "TEST_VAR"), Some(false));
         assert_eq!(parse_bool("off", "TEST_VAR"), Some(false));
-        
+
         // Test case insensitivity
         assert_eq!(parse_bool("FALSE", "TEST_VAR"), Some(false));
         assert_eq!(parse_bool("No", "TEST_VAR"), Some(false));
         assert_eq!(parse_bool("OFF", "TEST_VAR"), Some(false));
-        
+
         // Test with whitespace
         assert_eq!(parse_bool(" false ", "TEST_VAR"), Some(false));
         assert_eq!(parse_bool("  0  ", "TEST_VAR"), Some(false));
