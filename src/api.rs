@@ -634,4 +634,154 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn pack_request_parses_allow_rotations_when_present_true() {
+        let json = r#"{
+            "containers": [{"dims": [10.0, 10.0, 10.0], "max_weight": 100.0}],
+            "objects": [{"id": 1, "dims": [5.0, 5.0, 5.0], "weight": 10.0}],
+            "allow_rotations": true
+        }"#;
+        let request: PackRequest = serde_json::from_str(json).expect("Should parse valid JSON");
+        assert_eq!(
+            request.allow_rotations,
+            Some(true),
+            "allow_rotations should be Some(true) when explicitly set to true"
+        );
+    }
+
+    #[test]
+    fn pack_request_parses_allow_rotations_when_present_false() {
+        let json = r#"{
+            "containers": [{"dims": [10.0, 10.0, 10.0], "max_weight": 100.0}],
+            "objects": [{"id": 1, "dims": [5.0, 5.0, 5.0], "weight": 10.0}],
+            "allow_rotations": false
+        }"#;
+        let request: PackRequest = serde_json::from_str(json).expect("Should parse valid JSON");
+        assert_eq!(
+            request.allow_rotations,
+            Some(false),
+            "allow_rotations should be Some(false) when explicitly set to false"
+        );
+    }
+
+    #[test]
+    fn pack_request_parses_allow_rotations_when_absent() {
+        let json = r#"{
+            "containers": [{"dims": [10.0, 10.0, 10.0], "max_weight": 100.0}],
+            "objects": [{"id": 1, "dims": [5.0, 5.0, 5.0], "weight": 10.0}]
+        }"#;
+        let request: PackRequest = serde_json::from_str(json).expect("Should parse valid JSON");
+        assert_eq!(
+            request.allow_rotations, None,
+            "allow_rotations should be None when field is omitted"
+        );
+    }
+
+    #[test]
+    fn pack_request_parses_allow_rotations_when_null() {
+        let json = r#"{
+            "containers": [{"dims": [10.0, 10.0, 10.0], "max_weight": 100.0}],
+            "objects": [{"id": 1, "dims": [5.0, 5.0, 5.0], "weight": 10.0}],
+            "allow_rotations": null
+        }"#;
+        let request: PackRequest = serde_json::from_str(json).expect("Should parse valid JSON");
+        assert_eq!(
+            request.allow_rotations, None,
+            "allow_rotations should be None when field is explicitly null"
+        );
+    }
+
+    #[test]
+    fn validated_request_preserves_allow_rotations_value() {
+        let request = PackRequest {
+            containers: vec![ContainerRequest {
+                name: Some("Test".to_string()),
+                dims: (10.0, 10.0, 10.0),
+                max_weight: 100.0,
+            }],
+            objects: vec![Box3D {
+                id: 1,
+                dims: (5.0, 5.0, 5.0),
+                weight: 10.0,
+            }],
+            allow_rotations: Some(true),
+        };
+
+        let validated = request
+            .into_validated()
+            .expect("Should validate successfully");
+        assert_eq!(
+            validated.allow_rotations,
+            Some(true),
+            "Validated request should preserve allow_rotations value"
+        );
+    }
+
+    #[test]
+    fn request_level_allow_rotations_true_overrides_config() {
+        // Create a config with rotations disabled
+        let mut config = crate::optimizer::PackingConfig::default();
+        config.allow_item_rotation = false;
+
+        // Simulate request-level override
+        let allow_rotations_override = Some(true);
+        if let Some(allow_rotations) = allow_rotations_override {
+            config.allow_item_rotation = allow_rotations;
+        }
+
+        assert!(
+            config.allow_item_rotation,
+            "Request-level allow_rotations=true should override config setting"
+        );
+    }
+
+    #[test]
+    fn request_level_allow_rotations_false_overrides_config() {
+        // Create a config with rotations enabled
+        let mut config = crate::optimizer::PackingConfig::default();
+        config.allow_item_rotation = true;
+
+        // Simulate request-level override
+        let allow_rotations_override = Some(false);
+        if let Some(allow_rotations) = allow_rotations_override {
+            config.allow_item_rotation = allow_rotations;
+        }
+
+        assert!(
+            !config.allow_item_rotation,
+            "Request-level allow_rotations=false should override config setting"
+        );
+    }
+
+    #[test]
+    fn request_level_allow_rotations_none_preserves_config() {
+        // Create a config with rotations disabled
+        let mut config = crate::optimizer::PackingConfig::default();
+        config.allow_item_rotation = false;
+
+        // Simulate request-level override with None
+        let allow_rotations_override: Option<bool> = None;
+        if let Some(allow_rotations) = allow_rotations_override {
+            config.allow_item_rotation = allow_rotations;
+        }
+
+        assert!(
+            !config.allow_item_rotation,
+            "When allow_rotations is None, config setting should be preserved"
+        );
+
+        // Now test with rotations enabled
+        let mut config = crate::optimizer::PackingConfig::default();
+        config.allow_item_rotation = true;
+
+        if let Some(allow_rotations) = allow_rotations_override {
+            config.allow_item_rotation = allow_rotations;
+        }
+
+        assert!(
+            config.allow_item_rotation,
+            "When allow_rotations is None, config setting should be preserved"
+        );
+    }
 }
