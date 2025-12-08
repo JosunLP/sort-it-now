@@ -312,3 +312,53 @@ fn load_f64_with_warning(
         None => default,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_bool_true_values() {
+        assert_eq!(parse_bool("1", "TEST_VAR"), Some(true));
+        assert_eq!(parse_bool("true", "TEST_VAR"), Some(true));
+        assert_eq!(parse_bool("yes", "TEST_VAR"), Some(true));
+        assert_eq!(parse_bool("y", "TEST_VAR"), Some(true));
+        assert_eq!(parse_bool("on", "TEST_VAR"), Some(true));
+
+        // Test case insensitivity
+        assert_eq!(parse_bool("TRUE", "TEST_VAR"), Some(true));
+        assert_eq!(parse_bool("Yes", "TEST_VAR"), Some(true));
+        assert_eq!(parse_bool("ON", "TEST_VAR"), Some(true));
+
+        // Test with whitespace
+        assert_eq!(parse_bool(" true ", "TEST_VAR"), Some(true));
+        assert_eq!(parse_bool("  1  ", "TEST_VAR"), Some(true));
+    }
+
+    #[test]
+    fn test_parse_bool_false_values() {
+        assert_eq!(parse_bool("0", "TEST_VAR"), Some(false));
+        assert_eq!(parse_bool("false", "TEST_VAR"), Some(false));
+        assert_eq!(parse_bool("no", "TEST_VAR"), Some(false));
+        assert_eq!(parse_bool("n", "TEST_VAR"), Some(false));
+        assert_eq!(parse_bool("off", "TEST_VAR"), Some(false));
+
+        // Test case insensitivity
+        assert_eq!(parse_bool("FALSE", "TEST_VAR"), Some(false));
+        assert_eq!(parse_bool("No", "TEST_VAR"), Some(false));
+        assert_eq!(parse_bool("OFF", "TEST_VAR"), Some(false));
+
+        // Test with whitespace
+        assert_eq!(parse_bool(" false ", "TEST_VAR"), Some(false));
+        assert_eq!(parse_bool("  0  ", "TEST_VAR"), Some(false));
+    }
+
+    #[test]
+    fn test_parse_bool_invalid_values() {
+        assert_eq!(parse_bool("invalid", "TEST_VAR"), None);
+        assert_eq!(parse_bool("2", "TEST_VAR"), None);
+        assert_eq!(parse_bool("maybe", "TEST_VAR"), None);
+        assert_eq!(parse_bool("", "TEST_VAR"), None);
+        assert_eq!(parse_bool("  ", "TEST_VAR"), None);
+    }
+}
