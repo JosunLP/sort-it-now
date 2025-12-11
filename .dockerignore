@@ -6,9 +6,10 @@
 # Rust build artifacts
 target/
 
-# Documentation
-*.md
+# Documentation (not needed at runtime in Docker)
+DOCKER_SETUP.md
 CHANGELOG
+CONCEPT.md
 LICENSE
 
 # Environment files
