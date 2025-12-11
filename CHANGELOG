@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.1.0] - 11-12-2025
+
+- Added support for dockerized deployment. See DOCKER_SETUP.md for setup instructions.
+- Added support for optional item rotation in sorting algorithm.
+
 ## [1.0.0] - 29-10-2025
 
 - Initial release of sort_it_now.
