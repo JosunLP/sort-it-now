@@ -1574,12 +1574,9 @@ mod tests {
         for i in 0..rect_orientations.len() {
             for j in (i + 1)..rect_orientations.len() {
                 assert_ne!(
-                    rect_orientations[i].dims,
-                    rect_orientations[j].dims,
+                    rect_orientations[i].dims, rect_orientations[j].dims,
                     "Orientations at indices {} and {} are duplicates: {:?}",
-                    i,
-                    j,
-                    rect_orientations[i].dims
+                    i, j, rect_orientations[i].dims
                 );
             }
         }
@@ -1603,12 +1600,9 @@ mod tests {
         for i in 0..distinct_orientations.len() {
             for j in (i + 1)..distinct_orientations.len() {
                 assert_ne!(
-                    distinct_orientations[i].dims,
-                    distinct_orientations[j].dims,
+                    distinct_orientations[i].dims, distinct_orientations[j].dims,
                     "Orientations at indices {} and {} are duplicates: {:?}",
-                    i,
-                    j,
-                    distinct_orientations[i].dims
+                    i, j, distinct_orientations[i].dims
                 );
             }
         }
