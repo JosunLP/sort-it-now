@@ -419,7 +419,7 @@ pub async fn start_api_server(config: ApiConfig, optimizer_config: OptimizerConf
         .route("/docs", get(serve_openapi_ui))
         // Web-UI (embedded)
         .route("/", get(serve_index))
-        .route("/*path", get(serve_static))
+        .route("/{*path}", get(serve_static))
         .layer(cors)
         .with_state(state);
 

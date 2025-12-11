@@ -312,6 +312,7 @@ pub struct PackingResult {
 
 impl PackingResult {
     /// Gibt an, ob alle Objekte verpackt wurden.
+    #[allow(dead_code)]
     pub fn is_complete(&self) -> bool {
         self.unplaced.is_empty()
     }
@@ -327,6 +328,7 @@ impl PackingResult {
     }
 
     /// Berechnet die durchschnittliche Auslastung aller Container.
+    #[allow(dead_code)]
     pub fn average_utilization(&self) -> f64 {
         if self.containers.is_empty() {
             return 0.0;
@@ -340,11 +342,13 @@ impl PackingResult {
     }
 
     /// Berechnet das Gesamtgewicht aller verpackten Objekte.
+    #[allow(dead_code)]
     pub fn total_packed_weight(&self) -> f64 {
         self.containers.iter().map(|c| c.total_weight()).sum()
     }
 
     /// Liefert die aggregierten Diagnosewerte.
+    #[allow(dead_code)]
     pub fn diagnostics_summary(&self) -> &PackingDiagnosticsSummary {
         &self.diagnostics_summary
     }
@@ -439,6 +443,7 @@ fn determine_unfit_reason_across_templates(
 ///
 /// # Rückgabewert
 /// `PackingResult` mit platzierten Containern und ggf. unverpackten Objekten
+#[allow(dead_code)]
 pub fn pack_objects(
     objects: Vec<Box3D>,
     container_templates: Vec<ContainerBlueprint>,

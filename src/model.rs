@@ -15,6 +15,7 @@ use utoipa::ToSchema;
 pub enum ValidationError {
     InvalidDimension(String),
     InvalidWeight(String),
+    #[allow(dead_code)]
     InvalidConfiguration(String),
 }
 
@@ -100,6 +101,7 @@ impl Box3D {
     ///
     /// # Rückgabewert
     /// Die Grundfläche als Produkt von Breite × Tiefe
+    #[allow(dead_code)]
     pub fn base_area(&self) -> f64 {
         let (w, d, _) = self.dims;
         w * d
@@ -122,6 +124,7 @@ impl PlacedBox {
     ///
     /// # Rückgabewert
     /// Z-Position + Höhe des Objekts
+    #[allow(dead_code)]
     pub fn top_z(&self) -> f64 {
         self.position.2 + self.object.dims.2
     }
@@ -130,6 +133,7 @@ impl PlacedBox {
     ///
     /// # Rückgabewert
     /// Tuple mit (center_x, center_y, center_z)
+    #[allow(dead_code)]
     pub fn center(&self) -> (f64, f64, f64) {
         (
             self.position.0 + self.object.dims.0 / 2.0,
@@ -220,6 +224,7 @@ impl Container {
     ///
     /// # Rückgabewert
     /// Summe der Volumina aller platzierten Objekte
+    #[allow(dead_code)]
     pub fn used_volume(&self) -> f64 {
         self.placed.iter().map(|b| b.object.volume()).sum()
     }
@@ -228,6 +233,7 @@ impl Container {
     ///
     /// # Rückgabewert
     /// Volumen des Containers
+    #[allow(dead_code)]
     pub fn total_volume(&self) -> f64 {
         let (w, d, h) = self.dims;
         w * d * h
@@ -237,6 +243,7 @@ impl Container {
     ///
     /// # Rückgabewert
     /// Prozentwert der Volumenbelegung (0.0 bis 100.0)
+    #[allow(dead_code)]
     pub fn utilization_percent(&self) -> f64 {
         let total = self.total_volume();
         if total <= 0.0 {
@@ -266,6 +273,7 @@ impl Container {
     ///
     /// # Rückgabewert
     /// Ein neuer Container mit gleichen Dimensionen und Gewichtslimit
+    #[allow(dead_code)]
     pub fn empty_like(&self) -> Self {
         Self {
             dims: self.dims,
@@ -277,6 +285,7 @@ impl Container {
     }
 
     /// Hinterlegt Metadaten zum Container-Typ (Builder-Pattern light).
+    #[allow(dead_code)]
     pub fn with_meta(mut self, template_id: usize, label: Option<String>) -> Self {
         self.template_id = Some(template_id);
         self.label = label;
