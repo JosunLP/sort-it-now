@@ -114,18 +114,23 @@ impl ContainerRequest {
         ],
         "objects": [
             { "id": 1, "dims": [30.0, 40.0, 20.0], "weight": 5.0 }
-        ]
+        ],
+        "allow_rotations": true
     })
 )]
 pub struct PackRequest {
     pub containers: Vec<ContainerRequest>,
     pub objects: Vec<Box3D>,
+    #[serde(default)]
+    #[schema(nullable = true)]
+    pub allow_rotations: Option<bool>,
 }
 
 #[derive(Debug)]
 struct ValidatedPackRequest {
     containers: Vec<ContainerBlueprint>,
     objects: Vec<Box3D>,
+    allow_rotations: Option<bool>,
 }
 
 impl ValidatedPackRequest {
@@ -137,8 +142,8 @@ impl ValidatedPackRequest {
         self.objects.len()
     }
 
-    fn into_parts(self) -> (Vec<Box3D>, Vec<ContainerBlueprint>) {
-        (self.objects, self.containers)
+    fn into_parts(self) -> (Vec<Box3D>, Vec<ContainerBlueprint>, Option<bool>) {
+        (self.objects, self.containers, self.allow_rotations)
     }
 }
 
@@ -173,6 +178,7 @@ impl PackRequest {
         Ok(ValidatedPackRequest {
             containers,
             objects,
+            allow_rotations: self.allow_rotations,
         })
     }
 }
@@ -413,7 +419,7 @@ pub async fn start_api_server(config: ApiConfig, optimizer_config: OptimizerConf
         .route("/docs", get(serve_openapi_ui))
         // Web-UI (embedded)
         .route("/", get(serve_index))
-        .route("/*path", get(serve_static))
+        .route("/{*path}", get(serve_static))
         .layer(cors)
         .with_state(state);
 
@@ -481,13 +487,16 @@ async fn handle_pack(
 
     let object_count = request.object_count();
     let container_count = request.container_count();
-    let (objects, container_blueprints) = request.into_parts();
+    let (objects, container_blueprints, allow_rotations_override) = request.into_parts();
 
     println!(
         "📥 Neue Pack-Anfrage: {} Objekte, {} Verpackungstypen",
         object_count, container_count
     );
-    let packing_config = state.optimizer_config.packing_config();
+    let mut packing_config = state.optimizer_config.packing_config();
+    if let Some(allow_rotations) = allow_rotations_override {
+        packing_config.allow_item_rotation = allow_rotations;
+    }
     let packing_result = pack_objects_with_config(objects, container_blueprints, packing_config);
     println!(
         "📦 Ergebnis: {} Container, {} unverpackte Objekte",
@@ -531,11 +540,14 @@ async fn handle_pack_stream(
         Err(response) => return response,
     };
 
-    let (objects, container_blueprints) = request.into_parts();
+    let (objects, container_blueprints, allow_rotations_override) = request.into_parts();
 
     let (tx, rx) = mpsc::channel::<String>(32);
 
-    let packing_config = state.optimizer_config.packing_config();
+    let mut packing_config = state.optimizer_config.packing_config();
+    if let Some(allow_rotations) = allow_rotations_override {
+        packing_config.allow_item_rotation = allow_rotations;
+    }
 
     tokio::task::spawn_blocking(move || {
         let _ = pack_objects_with_progress(objects, container_blueprints, packing_config, |evt| {
@@ -621,5 +633,155 @@ mod tests {
                 name
             );
         }
+    }
+
+    #[test]
+    fn pack_request_parses_allow_rotations_when_present_true() {
+        let json = r#"{
+            "containers": [{"dims": [10.0, 10.0, 10.0], "max_weight": 100.0}],
+            "objects": [{"id": 1, "dims": [5.0, 5.0, 5.0], "weight": 10.0}],
+            "allow_rotations": true
+        }"#;
+        let request: PackRequest = serde_json::from_str(json).expect("Should parse valid JSON");
+        assert_eq!(
+            request.allow_rotations,
+            Some(true),
+            "allow_rotations should be Some(true) when explicitly set to true"
+        );
+    }
+
+    #[test]
+    fn pack_request_parses_allow_rotations_when_present_false() {
+        let json = r#"{
+            "containers": [{"dims": [10.0, 10.0, 10.0], "max_weight": 100.0}],
+            "objects": [{"id": 1, "dims": [5.0, 5.0, 5.0], "weight": 10.0}],
+            "allow_rotations": false
+        }"#;
+        let request: PackRequest = serde_json::from_str(json).expect("Should parse valid JSON");
+        assert_eq!(
+            request.allow_rotations,
+            Some(false),
+            "allow_rotations should be Some(false) when explicitly set to false"
+        );
+    }
+
+    #[test]
+    fn pack_request_parses_allow_rotations_when_absent() {
+        let json = r#"{
+            "containers": [{"dims": [10.0, 10.0, 10.0], "max_weight": 100.0}],
+            "objects": [{"id": 1, "dims": [5.0, 5.0, 5.0], "weight": 10.0}]
+        }"#;
+        let request: PackRequest = serde_json::from_str(json).expect("Should parse valid JSON");
+        assert_eq!(
+            request.allow_rotations, None,
+            "allow_rotations should be None when field is omitted"
+        );
+    }
+
+    #[test]
+    fn pack_request_parses_allow_rotations_when_null() {
+        let json = r#"{
+            "containers": [{"dims": [10.0, 10.0, 10.0], "max_weight": 100.0}],
+            "objects": [{"id": 1, "dims": [5.0, 5.0, 5.0], "weight": 10.0}],
+            "allow_rotations": null
+        }"#;
+        let request: PackRequest = serde_json::from_str(json).expect("Should parse valid JSON");
+        assert_eq!(
+            request.allow_rotations, None,
+            "allow_rotations should be None when field is explicitly null"
+        );
+    }
+
+    #[test]
+    fn validated_request_preserves_allow_rotations_value() {
+        let request = PackRequest {
+            containers: vec![ContainerRequest {
+                name: Some("Test".to_string()),
+                dims: (10.0, 10.0, 10.0),
+                max_weight: 100.0,
+            }],
+            objects: vec![Box3D {
+                id: 1,
+                dims: (5.0, 5.0, 5.0),
+                weight: 10.0,
+            }],
+            allow_rotations: Some(true),
+        };
+
+        let validated = request
+            .into_validated()
+            .expect("Should validate successfully");
+        assert_eq!(
+            validated.allow_rotations,
+            Some(true),
+            "Validated request should preserve allow_rotations value"
+        );
+    }
+
+    #[test]
+    fn request_level_allow_rotations_true_overrides_config() {
+        // Create a config with rotations disabled
+        let mut config = crate::optimizer::PackingConfig::default();
+        config.allow_item_rotation = false;
+
+        // Simulate request-level override
+        let allow_rotations_override = Some(true);
+        if let Some(allow_rotations) = allow_rotations_override {
+            config.allow_item_rotation = allow_rotations;
+        }
+
+        assert!(
+            config.allow_item_rotation,
+            "Request-level allow_rotations=true should override config setting"
+        );
+    }
+
+    #[test]
+    fn request_level_allow_rotations_false_overrides_config() {
+        // Create a config with rotations enabled
+        let mut config = crate::optimizer::PackingConfig::default();
+        config.allow_item_rotation = true;
+
+        // Simulate request-level override
+        let allow_rotations_override = Some(false);
+        if let Some(allow_rotations) = allow_rotations_override {
+            config.allow_item_rotation = allow_rotations;
+        }
+
+        assert!(
+            !config.allow_item_rotation,
+            "Request-level allow_rotations=false should override config setting"
+        );
+    }
+
+    #[test]
+    fn request_level_allow_rotations_none_preserves_config() {
+        // Create a config with rotations disabled
+        let mut config = crate::optimizer::PackingConfig::default();
+        config.allow_item_rotation = false;
+
+        // Simulate request-level override with None
+        let allow_rotations_override: Option<bool> = None;
+        if let Some(allow_rotations) = allow_rotations_override {
+            config.allow_item_rotation = allow_rotations;
+        }
+
+        assert!(
+            !config.allow_item_rotation,
+            "When allow_rotations is None, config setting should be preserved"
+        );
+
+        // Now test with rotations enabled
+        let mut config = crate::optimizer::PackingConfig::default();
+        config.allow_item_rotation = true;
+
+        if let Some(allow_rotations) = allow_rotations_override {
+            config.allow_item_rotation = allow_rotations;
+        }
+
+        assert!(
+            config.allow_item_rotation,
+            "When allow_rotations is None, config setting should be preserved"
+        );
     }
 }

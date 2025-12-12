@@ -167,6 +167,7 @@ impl OptimizerConfig {
     const GENERAL_EPSILON_VAR: &'static str = "SORT_IT_NOW_PACKING_GENERAL_EPSILON";
     const BALANCE_RATIO_VAR: &'static str = "SORT_IT_NOW_PACKING_BALANCE_LIMIT_RATIO";
     const FOOTPRINT_TOLERANCE_VAR: &'static str = "SORT_IT_NOW_PACKING_FOOTPRINT_TOLERANCE";
+    const ALLOW_ROTATION_VAR: &'static str = "SORT_IT_NOW_PACKING_ALLOW_ROTATIONS";
 
     fn from_env() -> Self {
         let grid_step = load_f64_with_warning(
@@ -218,6 +219,10 @@ impl OptimizerConfig {
             "Warnung: Angepasste Footprint-Gruppierung kann zu unerwarteten Platzierungen führen",
         );
 
+        let allow_item_rotation = env_string(Self::ALLOW_ROTATION_VAR)
+            .and_then(|raw| parse_bool(&raw, Self::ALLOW_ROTATION_VAR))
+            .unwrap_or(PackingConfig::DEFAULT_ALLOW_ITEM_ROTATION);
+
         let packing = PackingConfig::builder()
             .grid_step(grid_step)
             .support_ratio(support_ratio)
@@ -225,6 +230,7 @@ impl OptimizerConfig {
             .general_epsilon(general_epsilon)
             .balance_limit_ratio(balance_limit_ratio)
             .footprint_cluster_tolerance(footprint_cluster_tolerance)
+            .allow_item_rotation(allow_item_rotation)
             .build();
 
         Self { packing }
@@ -251,6 +257,20 @@ fn env_string(name: &str) -> Option<String> {
             eprintln!(
                 "⚠️ Zugriff auf {} fehlgeschlagen: {}. Verwende Standardwert.",
                 name, err
+            );
+            None
+        }
+    }
+}
+
+fn parse_bool(raw: &str, var_name: &str) -> Option<bool> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "y" | "on" => Some(true),
+        "0" | "false" | "no" | "n" | "off" => Some(false),
+        other => {
+            eprintln!(
+                "⚠️ Konnte {} ('{}') nicht als booleschen Wert interpretieren. Verwende Standardwert.",
+                var_name, other
             );
             None
         }
@@ -290,5 +310,55 @@ fn load_f64_with_warning(
             }
         },
         None => default,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_bool_true_values() {
+        assert_eq!(parse_bool("1", "TEST_VAR"), Some(true));
+        assert_eq!(parse_bool("true", "TEST_VAR"), Some(true));
+        assert_eq!(parse_bool("yes", "TEST_VAR"), Some(true));
+        assert_eq!(parse_bool("y", "TEST_VAR"), Some(true));
+        assert_eq!(parse_bool("on", "TEST_VAR"), Some(true));
+
+        // Test case insensitivity
+        assert_eq!(parse_bool("TRUE", "TEST_VAR"), Some(true));
+        assert_eq!(parse_bool("Yes", "TEST_VAR"), Some(true));
+        assert_eq!(parse_bool("ON", "TEST_VAR"), Some(true));
+
+        // Test with whitespace
+        assert_eq!(parse_bool(" true ", "TEST_VAR"), Some(true));
+        assert_eq!(parse_bool("  1  ", "TEST_VAR"), Some(true));
+    }
+
+    #[test]
+    fn test_parse_bool_false_values() {
+        assert_eq!(parse_bool("0", "TEST_VAR"), Some(false));
+        assert_eq!(parse_bool("false", "TEST_VAR"), Some(false));
+        assert_eq!(parse_bool("no", "TEST_VAR"), Some(false));
+        assert_eq!(parse_bool("n", "TEST_VAR"), Some(false));
+        assert_eq!(parse_bool("off", "TEST_VAR"), Some(false));
+
+        // Test case insensitivity
+        assert_eq!(parse_bool("FALSE", "TEST_VAR"), Some(false));
+        assert_eq!(parse_bool("No", "TEST_VAR"), Some(false));
+        assert_eq!(parse_bool("OFF", "TEST_VAR"), Some(false));
+
+        // Test with whitespace
+        assert_eq!(parse_bool(" false ", "TEST_VAR"), Some(false));
+        assert_eq!(parse_bool("  0  ", "TEST_VAR"), Some(false));
+    }
+
+    #[test]
+    fn test_parse_bool_invalid_values() {
+        assert_eq!(parse_bool("invalid", "TEST_VAR"), None);
+        assert_eq!(parse_bool("2", "TEST_VAR"), None);
+        assert_eq!(parse_bool("maybe", "TEST_VAR"), None);
+        assert_eq!(parse_bool("", "TEST_VAR"), None);
+        assert_eq!(parse_bool("  ", "TEST_VAR"), None);
     }
 }

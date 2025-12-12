@@ -12,6 +12,7 @@ Eine intelligente 3D-Verpackungsoptimierung mit interaktiver Visualisierung.
   - Schwerpunkt-Balance
   - Schichtung (schwere Objekte unten)
 - **Automatische Multi-Container-Verwaltung**
+- **Optionale Objektrotationen** (per Request-Flag oder Umgebungsvariable aktivierbar)
 - **Umfassende Unit-Tests**
 - **REST-API** mit JSON-Kommunikation
 - **OpenAPI & Swagger UI** mit live Dokumentation unter `/docs`
@@ -29,6 +30,7 @@ Eine intelligente 3D-Verpackungsoptimierung mit interaktiver Visualisierung.
   - Gesamtgewicht
   - Volumen-Auslastung
   - Schwerpunkt-Position
+- **Konfigurationsmodal** mit Schalter für Objektrotationen
 - **Responsive Design**
 
 ## 🚀 Installation & Start
@@ -60,9 +62,11 @@ Im Browser:
 
 ## 📦 Fertige Builds & Release-Pipeline
 
-Für Releases existiert ein GitHub-Actions-Workflow (`.github/workflows/release.yml`), der bei Tags im Format `v*` (oder manuell via _workflow_dispatch_) zwei Plattform-Pakete erzeugt:
+Für Releases existiert ein GitHub-Actions-Workflow (`.github/workflows/release.yml`), der bei Tags im Format `v*` (oder manuell via _workflow_dispatch_) Plattform-Pakete erzeugt:
 
 - **Linux (x86_64)**: `sort-it-now-<version>-linux-x86_64.tar.gz`
+- **macOS (ARM64/Apple Silicon)**: `sort-it-now-<version>-macos-arm64.tar.gz`
+- **macOS (x86_64/Intel)**: `sort-it-now-<version>-macos-x86_64.tar.gz`
 - **Windows (x86_64)**: `sort-it-now-<version>-windows-x86_64.zip`
 
 Jedes Paket enthält die vorkompilierte Binärdatei, die aktuelle `README.md` sowie ein Installationsskript.
@@ -72,6 +76,39 @@ Die Artefakte werden sowohl als Workflow-Artefakte hochgeladen als auch automati
 
 - Linux/macOS: Im entpackten Ordner `./install.sh` ausführen (optional mit `sudo`), um `sort_it_now` nach `/usr/local/bin` zu kopieren.
 - Windows: `install.ps1` (PowerShell) ausführen. Standardmäßig wird nach `%ProgramFiles%\sort-it-now` installiert und der Pfad der Benutzer-Umgebungsvariable hinzugefügt.
+
+### Docker
+
+Für jeden Release wird automatisch ein Docker-Image auf [Docker Hub](https://hub.docker.com/) veröffentlicht. Die Images werden für mehrere Architekturen (linux/amd64, linux/arm64) bereitgestellt.
+
+> 📖 **Setup-Anleitung:** Siehe [DOCKER_SETUP.md](DOCKER_SETUP.md) für eine detaillierte Anleitung zur Einrichtung der Docker Hub Deployment-Pipeline.
+
+**Docker Image ausführen:**
+
+> **Hinweis:** Ersetze `<username>` durch `josunlp` (oder den entsprechenden Docker Hub Benutzernamen des Projekt-Maintainers).
+
+```bash
+docker run -p 8080:8080 -e SORT_IT_NOW_SKIP_UPDATE_CHECK=1 <username>/sort-it-now:latest
+```
+
+**Mit Umgebungsvariablen:**
+
+```bash
+docker run -p 8080:8080 \
+  -e SORT_IT_NOW_API_HOST=0.0.0.0 \
+  -e SORT_IT_NOW_API_PORT=8080 \
+  -e SORT_IT_NOW_SKIP_UPDATE_CHECK=1 \
+  <username>/sort-it-now:latest
+```
+
+**Eigenes Image bauen:**
+
+```bash
+docker build -t sort-it-now .
+docker run -p 8080:8080 -e SORT_IT_NOW_SKIP_UPDATE_CHECK=1 sort-it-now
+```
+
+Der Server ist dann unter `http://localhost:8080` verfügbar.
 
 ## 🔔 Automatische Updates beim Start
 
@@ -104,9 +141,12 @@ Verpackt Objekte in Container.
   "objects": [
     { "id": 1, "dims": [30.0, 30.0, 10.0], "weight": 50.0 },
     { "id": 2, "dims": [20.0, 50.0, 15.0], "weight": 30.0 }
-  ]
+  ],
+  "allow_rotations": true
 }
 ```
+
+Das optionale Feld `allow_rotations` aktiviert pro Anfrage die 90°-Rotationen. Wird es weggelassen, greift die Standardeinstellung aus der Umgebungsvariable `SORT_IT_NOW_PACKING_ALLOW_ROTATIONS` (default: false).
 
 **Response:**
 
@@ -252,6 +292,7 @@ Die Anwendung lädt beim Start optional eine `.env`-Datei (mittels [`dotenvy`](h
 | `SORT_IT_NOW_PACKING_HEIGHT_EPSILON`        | `1e-3`        | ⚠️ Toleranz für Höhenvergleiche; Werte zu groß oder klein beeinflussen Stabilitätschecks.                                                        |
 | `SORT_IT_NOW_PACKING_GENERAL_EPSILON`       | `1e-6`        | ⚠️ Allgemeine numerische Toleranz; extreme Werte können zu falschen Kollisionsergebnissen führen.                                                |
 | `SORT_IT_NOW_PACKING_BALANCE_LIMIT_RATIO`   | `0.45`        | ⚠️ Grenzwert für Schwerpunktabweichung; höhere Werte erlauben stärkere Schiefstellungen.                                                         |
+| `SORT_IT_NOW_PACKING_ALLOW_ROTATIONS`       | `false`       | Aktiviert alle 90°-Rotationen der Objekte. Kann auch pro Request über `allow_rotations` gesetzt werden.                                          |
 
 Eine beispielhafte Datei findest du in `.env.example`.
 
@@ -264,6 +305,7 @@ PackingConfig {
     height_epsilon: 1e-3,        // Höhen-Toleranz
     general_epsilon: 1e-6,       // Allgemeine Toleranz
     balance_limit_ratio: 0.45,   // Max. Schwerpunkt-Abweichung
+    allow_item_rotation: false,  // Objektrotationen aktivieren (per Default deaktiviert)
 }
 ```
 
@@ -285,7 +327,7 @@ const COLOR_PALETTE = [...];            // Farben für Objekte
 
 ## 🐛 Bekannte Einschränkungen
 
-1. **Rotation**: Objekte werden nicht rotiert (Fixed Orientation)
+1. **Rotation**: Nur 90°-Rotationen; komplexe Freiform-Rotationen sind nicht abgedeckt
 2. **Dynamische Stabilität**: Keine physikalische Simulation
 3. **Optimales Packing**: Heuristik, kein garantiertes Optimum
 4. **Browser-Support**: Benötigt WebGL-Unterstützung

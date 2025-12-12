@@ -236,6 +236,26 @@
         font-weight: bold;
       }
 
+      .checkbox-label {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: bold;
+        color: #00aaff;
+      }
+
+      .checkbox-label input {
+        width: auto;
+        transform: scale(1.2);
+        accent-color: #00aaff;
+      }
+
+      .form-hint {
+        margin-top: 6px;
+        color: #cccccc;
+        font-size: 0.85em;
+      }
+
       .form-group input {
         width: 100%;
         padding: 10px;
@@ -364,6 +384,20 @@
         <div id="objectsList"></div>
 
         <button class="btn-add" id="addObjectBtn">➕ Objekt hinzufügen</button>
+
+        <hr />
+
+        <h3>🧠 Optionen</h3>
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="allowRotationsCheckbox" />
+            <span>Rotationen der Objekte erlauben</span>
+          </label>
+          <p class="form-hint">
+            Nutzt alle 90°-Drehungen der Objekte, um zusätzliche
+            Packmöglichkeiten zu finden.
+          </p>
+        </div>
 
         <hr />
 

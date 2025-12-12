@@ -66,6 +66,7 @@ pub fn overlap_1d(a1: f64, a2: f64, b1: f64, b2: f64) -> f64 {
 ///
 /// # Rückgabewert
 /// Fläche der Überlappung in der XY-Ebene
+#[allow(dead_code)]
 pub fn overlap_area_xy(a: &PlacedBox, b: &PlacedBox) -> f64 {
     let overlap_x = overlap_1d(
         a.position.0,
