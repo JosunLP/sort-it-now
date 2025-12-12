@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.1.0] - 11-12-2025
+## [1.1.0] - 2025-12-11
 
 - Added support for dockerized deployment. See DOCKER_SETUP.md for setup instructions.
 - Added support for optional item rotation in sorting algorithm.
