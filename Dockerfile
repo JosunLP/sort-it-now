@@ -13,7 +13,7 @@ WORKDIR /app
 # Copy manifests and build dependencies first for better layer caching
 COPY Cargo.toml ./
 # Note: Cargo.lock is gitignored in this project, so dependencies will resolve at build time
-# Create a dummy main.rs to build dependencies
+# Create a dummy main.rs to build dependencies (this works because the project has no build.rs)
 RUN mkdir src && echo "fn main() {}" > src/main.rs && cargo build --release && rm -rf src
 
 # Copy actual source code
