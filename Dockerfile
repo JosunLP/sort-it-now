@@ -51,4 +51,4 @@ ENV SORT_IT_NOW_API_PORT=8080
 USER appuser
 
 # Run the binary
-CMD ["/app/sort_it_now"]
+ENTRYPOINT ["/app/sort_it_now"]
