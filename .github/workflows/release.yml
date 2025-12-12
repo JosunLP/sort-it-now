@@ -28,7 +28,7 @@ jobs:
             label: macOS ARM64 (Apple Silicon)
             artifact_suffix: macos-arm64
             archive_extension: tar.gz
-          - os: macos-13
+          - os: macos-15
             label: macOS x86_64 (Intel)
             artifact_suffix: macos-x86_64
             archive_extension: tar.gz
