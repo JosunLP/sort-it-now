@@ -67,7 +67,8 @@ jobs:
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@0.28.0
         with:
-          image-ref: ${{ secrets.DOCKER_USERNAME }}/sort-it-now:${{ steps.meta.outputs.version }}
+          # Use the first tag from metadata-action (e.g., "user/repo:1.2.3")
+          image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
           format: "sarif"
           output: "trivy-results.sarif"
           severity: "CRITICAL,HIGH"
