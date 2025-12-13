@@ -20,16 +20,17 @@ RUN mkdir src && echo "fn main() {}" > src/main.rs && cargo build --release && r
 COPY src ./src
 COPY web ./web
 
-# Build the application with actual source
+# Build the application with actual source (LTO + strip via Cargo.toml profile)
 RUN cargo build --release
 
 # Runtime stage
 FROM debian:bookworm-slim
 
-# Install runtime dependencies
+# Install runtime dependencies and curl for healthcheck
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     libssl3 \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for security
@@ -40,12 +41,21 @@ WORKDIR /app
 # Copy the binary from builder with proper ownership
 COPY --from=builder --chown=appuser:appuser /app/target/release/sort_it_now /app/sort_it_now
 
+# Copy web assets (required for static file serving)
+COPY --from=builder --chown=appuser:appuser /app/web /app/web
+
 # Expose the default port
 EXPOSE 8080
 
 # Set environment variables with defaults
 ENV SORT_IT_NOW_API_HOST=0.0.0.0
 ENV SORT_IT_NOW_API_PORT=8080
+# Disable auto-update in container (updates should be handled by redeployment)
+ENV SORT_IT_NOW_SKIP_UPDATE_CHECK=1
+
+# Healthcheck for container orchestration (Docker Compose, Kubernetes, etc.)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8080/docs/openapi.json || exit 1
 
 # Switch to non-root user
 USER appuser
