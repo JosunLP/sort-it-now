@@ -1,0 +1,73 @@
+{
+  "app": {
+    "title": "Sort-it-now 3D Visualisierung"
+  },
+  "stats": {
+    "title": "Statistiken",
+    "objects": "Objekte",
+    "weight": "Gewicht",
+    "utilization": "Auslastung",
+    "centerOfMass": "Schwerpunkt"
+  },
+  "controls": {
+    "configuration": "Konfiguration",
+    "packBatch": "Packen (Batch)",
+    "packLive": "Packen (Live)",
+    "previous": "Zurück",
+    "next": "Weiter",
+    "startAnimation": "Animation starten",
+    "stopAnimation": "Animation stoppen"
+  },
+  "help": {
+    "title": "Steuerung",
+    "leftMouse": "Linke Maustaste: Kamera drehen",
+    "rightMouse": "Rechte Maustaste: Kamera verschieben",
+    "mouseWheel": "Mausrad: Zoom",
+    "navigation": "Navigation: Container wechseln",
+    "animation": "Animation: Schrittweise Platzierung"
+  },
+  "config": {
+    "title": "Packkonfiguration",
+    "containerTypes": "Containertypen",
+    "addContainerType": "Containertyp hinzufügen",
+    "testObjects": "Testobjekte",
+    "addObject": "Objekt hinzufügen",
+    "options": "Optionen",
+    "allowRotations": "Objektrotationen erlauben",
+    "allowRotationsHint": "Verwendet alle 90°-Rotationen von Objekten, um zusätzliche Packmöglichkeiten zu finden.",
+    "saveConfiguration": "Konfiguration speichern",
+    "containerName": "Name",
+    "containerNamePlaceholder": "z.B. Standard Box",
+    "dimensions": "Abmessungen (B × T × H)",
+    "width": "Breite",
+    "depth": "Tiefe",
+    "height": "Höhe",
+    "maxWeight": "Max. Gewicht",
+    "remove": "Entfernen",
+    "objectId": "ID",
+    "objectWeight": "Gewicht"
+  },
+  "messages": {
+    "enterPositiveDimension": "Bitte geben Sie eine positive Zahl für die Dimension ein.",
+    "enterPositiveWeight": "Bitte geben Sie ein positives maximales Gewicht ein.",
+    "enterPositiveObjectWeight": "Bitte geben Sie ein positives Objektgewicht ein.",
+    "atLeastOneContainer": "Mindestens ein Containertyp ist erforderlich!",
+    "checkContainerDimensions": "Bitte überprüfen Sie die Abmessungen und Gewichte der Containertypen.",
+    "atLeastOneObject": "Mindestens ein Objekt ist erforderlich!",
+    "checkObjectDimensions": "Bitte überprüfen Sie die Abmessungen und das Gewicht der Objekte.",
+    "configSaved": "Konfiguration gespeichert",
+    "noContainerDefined": "Kein Containertyp definiert.",
+    "noSpaceWithRotation": "Kein Containertyp bietet genug Platz, auch nicht mit Rotation.",
+    "noSpace": "Kein Containertyp bietet genug Platz.",
+    "noWeightSupport": "Kein Containertyp unterstützt das Objektgewicht.",
+    "unknownProblem": "Unbekanntes Problem in der Konfiguration.",
+    "serverNotReachable": "Server nicht erreichbar!",
+    "packingError": "Packfehler",
+    "unplacedObjects": "nicht platzierte(s) Objekt(e)"
+  },
+  "language": {
+    "select": "Sprache",
+    "en": "English",
+    "de": "Deutsch"
+  }
+}

@@ -1,5 +1,6 @@
 import * as THREE from 'https://esm.sh/three@0.163.0';
 import { OrbitControls } from 'https://esm.sh/three@0.163.0/examples/jsm/controls/OrbitControls.js';
+import i18n from './i18n.js';
 
 let currentContainerIndex = 0;
 let packingResults = null;
@@ -326,17 +327,17 @@ function renderContainerTypesList() {
     <div class="object-item">
       <div class="object-header">
         <h4>Container Type ${index + 1}</h4>
-        <button class="btn-remove" onclick="removeContainerType(${index})">🗑️ Remove</button>
+        <button class="btn-remove" onclick="removeContainerType(${index})">🗑️ ${i18n.t('config.remove')}</button>
       </div>
       <div class="form-group">
-        <label>Label</label>
+        <label>${i18n.t('config.containerName')}</label>
         <input type="text" value="${
           entry.name ?? ''
-        }" placeholder="Optional" maxlength="60"
+        }" placeholder="${i18n.t('config.containerNamePlaceholder')}" maxlength="60"
                oninput="updateContainerType(${index}, 'name', null, this.value)" />
       </div>
       <div class="form-group">
-        <label>Dimensions (W × D × H)</label>
+        <label>${i18n.t('config.dimensions')}</label>
         <div class="form-row">
           <input type="number" value="${entry.dims[0]}" min="1" step="5"
                  onchange="updateContainerType(${index}, 'dims', 0, this.value)" />
@@ -347,7 +348,7 @@ function renderContainerTypesList() {
         </div>
       </div>
       <div class="form-group">
-        <label>Maximum Weight (kg)</label>
+        <label>${i18n.t('config.maxWeight')} (kg)</label>
         <input type="number" value="${entry.maxWeight}" min="0.1" step="5"
                onchange="updateContainerType(${index}, 'maxWeight', null, this.value)" />
       </div>
@@ -364,7 +365,7 @@ window.updateContainerType = function (index, field, subIndex, rawValue) {
   if (field === 'dims') {
     const value = parseFloat(rawValue);
     if (!Number.isFinite(value) || value <= 0) {
-      alert('Please enter a positive number for the dimension.');
+      alert(i18n.t('messages.enterPositiveDimension'));
       renderContainerTypesList();
       return;
     }
@@ -372,7 +373,7 @@ window.updateContainerType = function (index, field, subIndex, rawValue) {
   } else if (field === 'maxWeight') {
     const value = parseFloat(rawValue);
     if (!Number.isFinite(value) || value <= 0) {
-      alert('Please enter a positive maximum weight.');
+      alert(i18n.t('messages.enterPositiveWeight'));
       renderContainerTypesList();
       return;
     }
@@ -409,11 +410,11 @@ function renderObjectsList() {
       (obj, index) => `
     <div class="object-item">
       <div class="object-header">
-        <h4>Object ${obj.id}</h4>
-        <button class="btn-remove" onclick="removeObject(${index})">🗑️ Remove</button>
+        <h4>${i18n.t('config.testObjects')} ${obj.id}</h4>
+        <button class="btn-remove" onclick="removeObject(${index})">🗑️ ${i18n.t('config.remove')}</button>
       </div>
       <div class="form-group">
-        <label>Dimensions (W × D × H)</label>
+        <label>${i18n.t('config.dimensions')}</label>
         <div class="form-row">
           <input type="number" value="${obj.dims[0]}" min="1" step="5"
                  onchange="updateObject(${index}, 'dims', 0, this.value)" />
@@ -424,7 +425,7 @@ function renderObjectsList() {
         </div>
       </div>
       <div class="form-group">
-        <label>Weight (kg)</label>
+        <label>${i18n.t('config.objectWeight')} (kg)</label>
         <input type="number" value="${obj.weight}" min="0.1" step="1"
                onchange="updateObject(${index}, 'weight', null, this.value)" />
       </div>
@@ -438,7 +439,7 @@ window.updateObject = function (index, field, subIndex, value) {
   if (field === 'dims') {
     const numValue = parseFloat(value);
     if (!Number.isFinite(numValue) || numValue <= 0) {
-      alert('Please enter a positive number for the object dimension.');
+      alert(i18n.t('messages.enterPositiveDimension'));
       renderObjectsList();
       return;
     }
@@ -446,7 +447,7 @@ window.updateObject = function (index, field, subIndex, value) {
   } else if (field === 'weight') {
     const numValue = parseFloat(value);
     if (!Number.isFinite(numValue) || numValue <= 0) {
-      alert('Please enter a positive object weight.');
+      alert(i18n.t('messages.enterPositiveObjectWeight'));
       renderObjectsList();
       return;
     }
@@ -471,7 +472,7 @@ function addObject() {
 
 function saveConfig() {
   if (config.containers.length === 0) {
-    alert('At least one container type is required!');
+    alert(i18n.t('messages.atLeastOneContainer'));
     return;
   }
 
@@ -484,12 +485,12 @@ function saveConfig() {
       c.maxWeight <= 0
   );
   if (invalidContainer) {
-    alert('Please check dimensions and weights of the container types.');
+    alert(i18n.t('messages.checkContainerDimensions'));
     return;
   }
 
   if (config.objects.length === 0) {
-    alert('At least one object is required!');
+    alert(i18n.t('messages.atLeastOneObject'));
     return;
   }
 
@@ -502,12 +503,12 @@ function saveConfig() {
       o.weight <= 0
   );
   if (invalidObject) {
-    alert('Please check dimensions and weight of the objects.');
+    alert(i18n.t('messages.checkObjectDimensions'));
     return;
   }
 
   closeConfigModal();
-  console.log('✅ Configuration saved:', config);
+  console.log('✅', i18n.t('messages.configSaved'), config);
 }
 
 function describeContainerType(container, index) {
@@ -522,7 +523,7 @@ function collectConfigIssues() {
   if (config.containers.length === 0) {
     issues.push({
       type: 'config',
-      message: 'No container type is defined.',
+      message: i18n.t('messages.noContainerDefined'),
     });
     return issues;
   }
@@ -569,8 +570,8 @@ function collectConfigIssues() {
         id: obj.id,
         type: 'dimensions',
         details: config.allowRotations
-          ? 'No container type offers enough space, even with rotation.'
-          : 'No container type offers enough space.',
+          ? i18n.t('messages.noSpaceWithRotation')
+          : i18n.t('messages.noSpace'),
       });
       return;
     }
@@ -583,7 +584,7 @@ function collectConfigIssues() {
       issues.push({
         id: obj.id,
         type: 'weight',
-        details: 'No container type supports the object weight.',
+        details: i18n.t('messages.noWeightSupport'),
       });
     }
   });
@@ -611,7 +612,7 @@ function ensureConfigValidOrNotify() {
           case 'config':
             return issue.message;
           default:
-            return 'Unknown problem in the configuration.';
+            return i18n.t('messages.unknownProblem');
         }
       })
       .join('\n') +
@@ -648,7 +649,7 @@ async function fetchPacking() {
     ) {
       console.warn('⚠️ Unplaceable objects:', packingResults.unplaced);
       alert(
-        `⚠️ Warning: ${packingResults.unplaced.length} object(s) could not be packed!\n\n` +
+        `⚠️ ${i18n.t('messages.packingError')}: ${packingResults.unplaced.length} ${i18n.t('messages.unplacedObjects')}\n\n` +
           packingResults.unplaced
             .map((u) => `Object ${u.id}: ${u.reason}`)
             .join('\n')
@@ -659,7 +660,7 @@ async function fetchPacking() {
     updateNavigationButtons();
   } catch (error) {
     console.error('❌ Error:', error);
-    alert('Server not reachable!');
+    alert(i18n.t('messages.serverNotReachable'));
   }
 }
 
@@ -766,11 +767,11 @@ function toggleAnimation() {
   if (isAnimating) {
     clearInterval(animationInterval);
     isAnimating = false;
-    animateBtn.textContent = '▶ Start Animation';
+    updateAnimationButtonText();
   } else {
     if (!packingResults) return;
     isAnimating = true;
-    animateBtn.textContent = '⏸ Stop Animation';
+    updateAnimationButtonText();
     animationStep = 0;
     const container = packingResults.results[currentContainerIndex];
     const containerSize = resolveContainerDims(container);
@@ -834,13 +835,89 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
+// i18n initialization
+async function initializeI18n() {
+  await i18n.load(i18n.currentLang);
+  updateTranslations();
+  
+  // Set up language selector
+  const languageSelect = document.getElementById('languageSelect');
+  if (languageSelect) {
+    languageSelect.value = i18n.getLanguage();
+    languageSelect.addEventListener('change', async (e) => {
+      await i18n.setLanguage(e.target.value);
+      updateTranslations();
+      // Re-render stats and config if visible
+      if (packingResults && packingResults.results.length > 0) {
+        const container = packingResults.results[currentContainerIndex];
+        updateStats(container, container.dims);
+      } else if (liveMode && liveContainers.length > 0) {
+        updateStats(
+          liveContainers[currentContainerIndex],
+          resolveContainerDims(liveContainers[currentContainerIndex])
+        );
+      }
+      // Re-render config modal if open
+      const modal = document.getElementById('configModal');
+      if (modal.style.display === 'block') {
+        renderContainerTypesList();
+        renderObjectsList();
+      }
+    });
+  }
+}
+
+function updateTranslations() {
+  // Update all elements with data-i18n attribute
+  document.querySelectorAll('[data-i18n]').forEach((element) => {
+    const key = element.getAttribute('data-i18n');
+    const translation = i18n.t(key);
+    
+    // Update text content or specific attributes
+    if (element.tagName === 'TITLE') {
+      document.title = translation;
+    } else if (element.tagName === 'OPTION') {
+      element.textContent = translation;
+    } else if (element.tagName === 'SPAN' || element.tagName === 'BUTTON') {
+      // For buttons with icons, preserve emoji
+      const hasEmoji = /[\u{1F300}-\u{1F9FF}]/u.test(element.textContent);
+      if (hasEmoji && translation.indexOf(element.textContent.match(/[\u{1F300}-\u{1F9FF}]/u)?.[0] || '') === -1) {
+        // If translation doesn't contain the emoji, try to preserve it
+        const emoji = element.textContent.match(/[\u{1F300}-\u{1F9FF}⚙️📡🚀◄►▶➕💾]/u)?.[0] || '';
+        element.textContent = emoji ? `${emoji} ${translation}` : translation;
+      } else {
+        element.textContent = translation;
+      }
+    } else {
+      element.textContent = translation;
+    }
+  });
+  
+  // Update animation button text based on state
+  updateAnimationButtonText();
+}
+
+function updateAnimationButtonText() {
+  const animateBtn = document.getElementById('animateBtn');
+  if (animateBtn) {
+    const key = isAnimating ? 'controls.stopAnimation' : 'controls.startAnimation';
+    const text = i18n.t(key);
+    const emoji = isAnimating ? '⏸' : '▶';
+    animateBtn.querySelector('span').textContent = `${emoji} ${text}`;
+  }
+}
+
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
   renderer.render(scene, camera);
 }
 animate();
-console.log('🚀 3D Visualizer ready!');
+
+// Initialize i18n before showing ready message
+initializeI18n().then(() => {
+  console.log('🚀 3D Visualizer ready!');
+});
 
 // --- Live Modus (SSE) ---
 function startLivePacking() {
@@ -985,7 +1062,7 @@ function handleLiveEvent(evt) {
       if (typeof evt.unplaced === 'number' && evt.unplaced > 0) {
         console.warn(`⚠️ Total unpacked: ${evt.unplaced}`);
         alert(
-          `⚠️ Warning: ${evt.unplaced} object(s) could not be packed!\n\n` +
+          `⚠️ ${i18n.t('messages.packingError')}: ${evt.unplaced} ${i18n.t('messages.unplacedObjects')}\n\n` +
             liveUnplaced
               .map((u) => `Object ${u.id}: ${u.reason_text}`)
               .join('\n')

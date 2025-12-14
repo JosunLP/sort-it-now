@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Sort-it-now 3D Visualization</title>
+    <title data-i18n="app.title">Sort-it-now 3D Visualization</title>
     <style>
       * {
         margin: 0;
@@ -133,9 +133,45 @@
         background: #00aaff;
       }
 
-      #help {
+      #language-selector {
         position: absolute;
         top: 20px;
+        right: 20px;
+        background: rgba(0, 0, 0, 0.8);
+        padding: 12px;
+        border-radius: 8px;
+        border: 2px solid #00aaff;
+        pointer-events: auto;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        box-shadow: 0 4px 20px rgba(0, 170, 255, 0.3);
+      }
+
+      #language-selector label {
+        color: #00aaff;
+        font-weight: bold;
+        font-size: 0.9em;
+      }
+
+      #language-selector select {
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid #00aaff;
+        border-radius: 6px;
+        color: #fff;
+        padding: 6px 12px;
+        font-size: 14px;
+        cursor: pointer;
+        outline: none;
+      }
+
+      #language-selector select:hover {
+        background: rgba(255, 255, 255, 0.15);
+      }
+
+      #help {
+        position: absolute;
+        top: 80px;
         right: 20px;
         background: rgba(0, 0, 0, 0.8);
         padding: 15px;
@@ -331,36 +367,45 @@
     <div id="container"></div>
 
     <div id="ui-overlay">
+      <!-- Language Selector -->
+      <div id="language-selector">
+        <label for="languageSelect" data-i18n="language.select">Language</label>
+        <select id="languageSelect">
+          <option value="en" data-i18n="language.en">English</option>
+          <option value="de" data-i18n="language.de">Deutsch</option>
+        </select>
+      </div>
+
       <div id="stats">
-        <h3>Statistics</h3>
-        <p><strong>Objects:</strong> 0 / 0</p>
-        <p><strong>Weight:</strong> 0.00 kg</p>
-        <p><strong>Utilization:</strong> 0%</p>
-        <p><strong>Center of Mass:</strong> (0, 0, 0)</p>
+        <h3 data-i18n="stats.title">Statistics</h3>
+        <p><strong data-i18n="stats.objects">Objects:</strong> <span id="statsObjects">0 / 0</span></p>
+        <p><strong data-i18n="stats.weight">Weight:</strong> <span id="statsWeight">0.00 kg</span></p>
+        <p><strong data-i18n="stats.utilization">Utilization:</strong> <span id="statsUtilization">0%</span></p>
+        <p><strong data-i18n="stats.centerOfMass">Center of Mass:</strong> <span id="statsCenterOfMass">(0, 0, 0)</span></p>
       </div>
 
       <div id="controls">
-        <button id="configBtn" class="config-btn">⚙️ Configuration</button>
+        <button id="configBtn" class="config-btn"><span data-i18n="controls.configuration">⚙️ Configuration</span></button>
         <div class="separator"></div>
-        <button id="runPacking" class="primary">🚀 Pack (Batch)</button>
-        <button id="runPackingLive" class="animate">📡 Pack (Live)</button>
+        <button id="runPacking" class="primary"><span data-i18n="controls.packBatch">🚀 Pack (Batch)</span></button>
+        <button id="runPackingLive" class="animate"><span data-i18n="controls.packLive">📡 Pack (Live)</span></button>
         <div class="separator"></div>
-        <button id="prevContainer" disabled>◄ Previous</button>
-        <button id="nextContainer" disabled>Next ►</button>
+        <button id="prevContainer" disabled><span data-i18n="controls.previous">◄ Previous</span></button>
+        <button id="nextContainer" disabled><span data-i18n="controls.next">Next ►</span></button>
         <div class="separator"></div>
         <button id="animateBtn" class="animate" disabled>
-          ▶ Start Animation
+          <span data-i18n="controls.startAnimation">▶ Start Animation</span>
         </button>
       </div>
 
       <div id="help">
-        <h4>🎮 Controls</h4>
+        <h4 data-i18n="help.title">🎮 Controls</h4>
         <ul>
-          <li>Left mouse button: Rotate camera</li>
-          <li>Right mouse button: Pan camera</li>
-          <li>Mouse wheel: Zoom</li>
-          <li>Navigation: Switch containers</li>
-          <li>Animation: Step-by-step placement</li>
+          <li data-i18n="help.leftMouse">Left mouse button: Rotate camera</li>
+          <li data-i18n="help.rightMouse">Right mouse button: Pan camera</li>
+          <li data-i18n="help.mouseWheel">Mouse wheel: Zoom</li>
+          <li data-i18n="help.navigation">Navigation: Switch containers</li>
+          <li data-i18n="help.animation">Animation: Step-by-step placement</li>
         </ul>
       </div>
     </div>
@@ -369,31 +414,31 @@
     <div id="configModal" class="modal">
       <div class="modal-content">
         <span class="close">&times;</span>
-        <h2>⚙️ Packing Configuration</h2>
+        <h2 data-i18n="config.title">⚙️ Packing Configuration</h2>
 
-        <h3>🧱 Container Types</h3>
+        <h3 data-i18n="config.containerTypes">🧱 Container Types</h3>
         <div id="containerTypesList"></div>
 
         <button class="btn-add" id="addContainerTypeBtn">
-          ➕ Add Container Type
+          <span data-i18n="config.addContainerType">➕ Add Container Type</span>
         </button>
 
         <hr />
 
-        <h3>📦 Test Objects</h3>
+        <h3 data-i18n="config.testObjects">📦 Test Objects</h3>
         <div id="objectsList"></div>
 
-        <button class="btn-add" id="addObjectBtn">➕ Add Object</button>
+        <button class="btn-add" id="addObjectBtn"><span data-i18n="config.addObject">➕ Add Object</span></button>
 
         <hr />
 
-        <h3>🧠 Options</h3>
+        <h3 data-i18n="config.options">🧠 Options</h3>
         <div class="form-group">
           <label class="checkbox-label">
             <input type="checkbox" id="allowRotationsCheckbox" />
-            <span>Allow object rotations</span>
+            <span data-i18n="config.allowRotations">Allow object rotations</span>
           </label>
-          <p class="form-hint">
+          <p class="form-hint" data-i18n="config.allowRotationsHint">
             Uses all 90° rotations of objects to find additional packing
             possibilities.
           </p>
@@ -401,7 +446,7 @@
 
         <hr />
 
-        <button id="saveConfigBtn">💾 Save Configuration</button>
+        <button id="saveConfigBtn"><span data-i18n="config.saveConfiguration">💾 Save Configuration</span></button>
       </div>
     </div>
 

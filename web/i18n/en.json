@@ -1,0 +1,73 @@
+{
+  "app": {
+    "title": "Sort-it-now 3D Visualization"
+  },
+  "stats": {
+    "title": "Statistics",
+    "objects": "Objects",
+    "weight": "Weight",
+    "utilization": "Utilization",
+    "centerOfMass": "Center of Mass"
+  },
+  "controls": {
+    "configuration": "Configuration",
+    "packBatch": "Pack (Batch)",
+    "packLive": "Pack (Live)",
+    "previous": "Previous",
+    "next": "Next",
+    "startAnimation": "Start Animation",
+    "stopAnimation": "Stop Animation"
+  },
+  "help": {
+    "title": "Controls",
+    "leftMouse": "Left mouse button: Rotate camera",
+    "rightMouse": "Right mouse button: Pan camera",
+    "mouseWheel": "Mouse wheel: Zoom",
+    "navigation": "Navigation: Switch containers",
+    "animation": "Animation: Step-by-step placement"
+  },
+  "config": {
+    "title": "Packing Configuration",
+    "containerTypes": "Container Types",
+    "addContainerType": "Add Container Type",
+    "testObjects": "Test Objects",
+    "addObject": "Add Object",
+    "options": "Options",
+    "allowRotations": "Allow object rotations",
+    "allowRotationsHint": "Uses all 90° rotations of objects to find additional packing possibilities.",
+    "saveConfiguration": "Save Configuration",
+    "containerName": "Name",
+    "containerNamePlaceholder": "e.g., Standard Box",
+    "dimensions": "Dimensions (W × D × H)",
+    "width": "Width",
+    "depth": "Depth",
+    "height": "Height",
+    "maxWeight": "Max. Weight",
+    "remove": "Remove",
+    "objectId": "ID",
+    "objectWeight": "Weight"
+  },
+  "messages": {
+    "enterPositiveDimension": "Please enter a positive number for the dimension.",
+    "enterPositiveWeight": "Please enter a positive maximum weight.",
+    "enterPositiveObjectWeight": "Please enter a positive object weight.",
+    "atLeastOneContainer": "At least one container type is required!",
+    "checkContainerDimensions": "Please check dimensions and weights of the container types.",
+    "atLeastOneObject": "At least one object is required!",
+    "checkObjectDimensions": "Please check dimensions and weight of the objects.",
+    "configSaved": "Configuration saved",
+    "noContainerDefined": "No container type is defined.",
+    "noSpaceWithRotation": "No container type offers enough space, even with rotation.",
+    "noSpace": "No container type offers enough space.",
+    "noWeightSupport": "No container type supports the object weight.",
+    "unknownProblem": "Unknown problem in the configuration.",
+    "serverNotReachable": "Server not reachable!",
+    "packingError": "Packing error",
+    "unplacedObjects": "unplaced object(s)"
+  },
+  "language": {
+    "select": "Language",
+    "en": "English",
+    "de": "Deutsch"
+  }
+}
