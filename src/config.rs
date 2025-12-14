@@ -3,7 +3,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use crate::optimizer::PackingConfig;
 
-/// Gesamte Anwendungskonfiguration, geladen aus Umgebungsvariablen oder Defaultwerten.
+/// Complete application configuration, loaded from environment variables or default values.
 #[derive(Clone, Debug)]
 pub struct AppConfig {
     pub api: ApiConfig,
@@ -12,7 +12,7 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
-    /// Erstellt eine Konfiguration aus den aktuell verfügbaren Umgebungsvariablen.
+    /// Creates a configuration from the currently available environment variables.
     pub fn from_env() -> Self {
         Self {
             api: ApiConfig::from_env(),
@@ -22,7 +22,7 @@ impl AppConfig {
     }
 }
 
-/// Konfiguration für den API-Server.
+/// Configuration for the API server.
 #[derive(Clone, Debug)]
 pub struct ApiConfig {
     bind_ip: IpAddr,
@@ -41,7 +41,7 @@ impl ApiConfig {
             Ok(ip) => (ip, host_value),
             Err(err) => {
                 eprintln!(
-                    "⚠️ Konnte SORT_IT_NOW_API_HOST ('{}') nicht parsen: {}. Verwende {}.",
+                    "⚠️ Could not parse SORT_IT_NOW_API_HOST ('{}'): {}. Using {}.",
                     host_value,
                     err,
                     Self::DEFAULT_HOST
@@ -49,7 +49,7 @@ impl ApiConfig {
                 (
                     Self::DEFAULT_HOST
                         .parse::<IpAddr>()
-                        .expect("Default-Host muss gültig sein"),
+                        .expect("Default host must be valid"),
                     Self::DEFAULT_HOST.to_string(),
                 )
             }
@@ -60,14 +60,14 @@ impl ApiConfig {
                 Ok(value) if value != 0 => value,
                 Ok(_) => {
                     eprintln!(
-                        "⚠️ SORT_IT_NOW_API_PORT darf nicht 0 sein. Verwende {}.",
+                        "⚠️ SORT_IT_NOW_API_PORT must not be 0. Using {}.",
                         Self::DEFAULT_PORT
                     );
                     Self::DEFAULT_PORT
                 }
                 Err(err) => {
                     eprintln!(
-                        "⚠️ Konnte SORT_IT_NOW_API_PORT ('{}') nicht parsen: {}. Verwende {}.",
+                        "⚠️ Could not parse SORT_IT_NOW_API_PORT ('{}'): {}. Using {}.",
                         raw,
                         err,
                         Self::DEFAULT_PORT
@@ -85,22 +85,22 @@ impl ApiConfig {
         }
     }
 
-    /// Socket-Adresse, an die der Server gebunden werden soll.
+    /// Socket address to bind the server to.
     pub fn socket_addr(&self) -> SocketAddr {
         SocketAddr::new(self.bind_ip, self.port)
     }
 
-    /// Sichtbarer Hostname für Logging und Hinweise.
+    /// Visible hostname for logging and hints.
     pub fn display_host(&self) -> &str {
         &self.display_host
     }
 
-    /// Konfigurierter Port.
+    /// Configured port.
     pub fn port(&self) -> u16 {
         self.port
     }
 
-    /// Gibt an, ob auf alle Interfaces gebunden wird.
+    /// Indicates whether binding to all interfaces.
     pub fn binds_to_all_interfaces(&self) -> bool {
         match self.bind_ip {
             IpAddr::V4(addr) => addr == Ipv4Addr::UNSPECIFIED,
@@ -108,13 +108,13 @@ impl ApiConfig {
         }
     }
 
-    /// Prüft, ob der Hostname dem Standardwert entspricht.
+    /// Checks whether the hostname matches the default value.
     pub fn uses_default_host(&self) -> bool {
         self.display_host == Self::DEFAULT_HOST
     }
 }
 
-/// Konfiguration für den Updater.
+/// Configuration for the updater.
 #[derive(Clone, Debug)]
 pub struct UpdateConfig {
     owner: String,
@@ -134,17 +134,17 @@ impl UpdateConfig {
         }
     }
 
-    /// GitHub Owner (Organisation oder Benutzer), von dem die Releases stammen.
+    /// GitHub owner (organization or user) from which releases originate.
     pub fn owner(&self) -> &str {
         &self.owner
     }
 
-    /// GitHub Repositoryname, von dem Releases geladen werden.
+    /// GitHub repository name from which releases are loaded.
     pub fn repo(&self) -> &str {
         &self.repo
     }
 
-    /// Liefert die URL, unter der das aktuellste Release abgefragt wird.
+    /// Returns the URL where the latest release is queried.
     pub fn latest_release_endpoint(&self) -> String {
         format!(
             "https://api.github.com/repos/{owner}/{repo}/releases/latest",
@@ -154,7 +154,7 @@ impl UpdateConfig {
     }
 }
 
-/// Konfiguration für die heuristische Pack-Optimierung.
+/// Configuration for heuristic pack optimization.
 #[derive(Clone, Debug)]
 pub struct OptimizerConfig {
     packing: PackingConfig,
@@ -174,40 +174,40 @@ impl OptimizerConfig {
             Self::GRID_STEP_VAR,
             PackingConfig::DEFAULT_GRID_STEP,
             |value| value > 0.0,
-            "muss größer als 0 sein",
-            "Warnung: Angepasste Raster-Schrittweite kann die Pack-Stabilität beeinträchtigen",
+            "must be greater than 0",
+            "Warning: Adjusted grid step size may affect packing stability",
         );
 
         let support_ratio = load_f64_with_warning(
             Self::SUPPORT_RATIO_VAR,
             PackingConfig::DEFAULT_SUPPORT_RATIO,
             |value| (0.0..=1.0).contains(&value),
-            "muss zwischen 0 und 1 liegen",
-            "Warnung: Angepasste Mindestauflage kann zu instabilen Stapeln führen",
+            "must be between 0 and 1",
+            "Warning: Adjusted minimum support may lead to unstable stacks",
         );
 
         let height_epsilon = load_f64_with_warning(
             Self::HEIGHT_EPSILON_VAR,
             PackingConfig::DEFAULT_HEIGHT_EPSILON,
             |value| value > 0.0,
-            "muss größer als 0 sein",
-            "Warnung: Angepasste Höhen-Toleranz kann unerwartete Platzierungen verursachen",
+            "must be greater than 0",
+            "Warning: Adjusted height tolerance may cause unexpected placements",
         );
 
         let general_epsilon = load_f64_with_warning(
             Self::GENERAL_EPSILON_VAR,
             PackingConfig::DEFAULT_GENERAL_EPSILON,
             |value| value > 0.0,
-            "muss größer als 0 sein",
-            "Warnung: Angepasste Toleranzen können numerische Instabilitäten hervorrufen",
+            "must be greater than 0",
+            "Warning: Adjusted tolerances may cause numerical instabilities",
         );
 
         let balance_limit_ratio = load_f64_with_warning(
             Self::BALANCE_RATIO_VAR,
             PackingConfig::DEFAULT_BALANCE_LIMIT_RATIO,
             |value| (0.0..=1.0).contains(&value),
-            "muss zwischen 0 und 1 liegen",
-            "Warnung: Angepasste Balance-Grenzen können zum Umkippen von Stapeln führen",
+            "must be between 0 and 1",
+            "Warning: Adjusted balance limits may cause stacks to tip over",
         );
 
         let footprint_cluster_tolerance = load_f64_with_warning(
@@ -215,8 +215,8 @@ impl OptimizerConfig {
             PackingConfig::DEFAULT_FOOTPRINT_CLUSTER_TOLERANCE,
             // Values above 0.5 would group excessively dissimilar footprints, defeating the clustering purpose.
             |value| (0.0..=0.5).contains(&value),
-            "muss zwischen 0 und 0.5 liegen",
-            "Warnung: Angepasste Footprint-Gruppierung kann zu unerwarteten Platzierungen führen",
+            "must be between 0 and 0.5",
+            "Warning: Adjusted footprint grouping may lead to unexpected placements",
         );
 
         let allow_item_rotation = env_string(Self::ALLOW_ROTATION_VAR)
@@ -236,7 +236,7 @@ impl OptimizerConfig {
         Self { packing }
     }
 
-    /// Liefert die konfigurierte PackingConfig.
+    /// Returns the configured PackingConfig.
     pub fn packing_config(&self) -> PackingConfig {
         self.packing
     }
@@ -255,7 +255,7 @@ fn env_string(name: &str) -> Option<String> {
         Err(env::VarError::NotPresent) => None,
         Err(err) => {
             eprintln!(
-                "⚠️ Zugriff auf {} fehlgeschlagen: {}. Verwende Standardwert.",
+                "⚠️ Access to {} failed: {}. Using default value.",
                 name, err
             );
             None
@@ -269,7 +269,7 @@ fn parse_bool(raw: &str, var_name: &str) -> Option<bool> {
         "0" | "false" | "no" | "n" | "off" => Some(false),
         other => {
             eprintln!(
-                "⚠️ Konnte {} ('{}') nicht als booleschen Wert interpretieren. Verwende Standardwert.",
+                "⚠️ Could not interpret {} ('{}') as boolean value. Using default value.",
                 var_name, other
             );
             None
@@ -289,7 +289,7 @@ fn load_f64_with_warning(
             Ok(value) => {
                 if !validator(value) {
                     eprintln!(
-                        "⚠️ {} enthält ungültigen Wert '{}': {}. Verwende {}.",
+                        "⚠️ {} contains invalid value '{}': {}. Using {}.",
                         var_name, raw, invalid_hint, default
                     );
                     default
@@ -303,7 +303,7 @@ fn load_f64_with_warning(
             }
             Err(err) => {
                 eprintln!(
-                    "⚠️ Konnte {} ('{}') nicht als Zahl parsen: {}. Verwende {}.",
+                    "⚠️ Could not parse {} ('{}') as number: {}. Using {}.",
                     var_name, raw, err, default
                 );
                 default

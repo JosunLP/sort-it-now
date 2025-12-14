@@ -1,11 +1,58 @@
-//! Optimierungslogik für die 3D-Verpackung von Objekten.
+//! Optimization logic for 3D object packing.
 //!
-//! Dieser Modul implementiert einen heuristischen Algorithmus zur effizienten Platzierung
-//! von Objekten in Containern unter Berücksichtigung von:
-//! - Gewichtsgrenzen und -verteilung
-//! - Stabilität und Unterstützung
-//! - Schwerpunkt-Balance
-//! - Schichtung (schwere Objekte unten)
+//! This module implements a heuristic algorithm for efficient placement
+//! of objects in containers, considering:
+//! - Weight limits and distribution
+//! - Stability and support
+//! - Center of gravity balance
+//! - Layering (heavy objects at the bottom)
+//!
+//! ## Algorithm Overview
+//!
+//! The packing algorithm works in the following phases:
+//!
+//! 1. **Sorting**: Objects are sorted by `weight × volume` descending
+//!    (heavy and large objects first for better stability)
+//!
+//! 2. **Clustering**: The `FootprintClusterStrategy` groups objects with similar
+//!    footprints to reduce fragmentation
+//!
+//! 3. **Orientation**: When rotation is enabled, up to 6 orientations
+//!    per object are tested (deduplicated for symmetric objects)
+//!
+//! 4. **Position Search**: For each object, the best position is searched:
+//!    - Iterate over all Z-layers (floor + tops of placed objects)
+//!    - Grid search on X/Y axis with configurable step size
+//!    - Evaluation by `PlacementScore { z, y, x, balance }`
+//!
+//! 5. **Stability Checks**: Each candidate position must pass:
+//!    - No collision with existing objects
+//!    - Minimum support (`support_ratio`) satisfied
+//!    - Weight hierarchy maintained (heavy under light)
+//!    - Center of gravity supported
+//!    - Balance within limits
+//!
+//! 6. **Multi-Container**: When space is insufficient, a new container is created
+//!
+//! ## Performance Notes
+//!
+//! - **grid_step**: Smaller values → more accurate, but O(n²) slower
+//! - **allow_item_rotation**: 6× more orientations → 6× more checks
+//! - Complexity: O(n × p × z) with n=objects, p=positions, z=Z-layers
+//!
+//! ## Example
+//!
+//! ```ignore
+//! use sort_it_now::optimizer::{pack_objects, PackingConfig};
+//!
+//! let config = PackingConfig::builder()
+//!     .grid_step(2.5)
+//!     .support_ratio(0.7)
+//!     .allow_item_rotation(true)
+//!     .build();
+//!
+//! let result = pack_objects_with_config(objects, templates, config);
+//! ```
 
 use std::cmp::Ordering;
 
@@ -13,24 +60,24 @@ use crate::geometry::{intersects, overlap_1d, point_inside};
 use crate::model::{Box3D, Container, ContainerBlueprint, PlacedBox};
 use utoipa::ToSchema;
 
-/// Konfiguration für den Packing-Algorithmus.
+/// Configuration for the packing algorithm.
 ///
-/// Enthält alle Toleranzen und Grenzwerte zur Steuerung des Optimierungsverhaltens.
+/// Contains all tolerances and limits for controlling the optimization behavior.
 #[derive(Copy, Clone, Debug)]
 pub struct PackingConfig {
-    /// Schrittweite für Positionsraster (kleinere Werte = genauer, aber langsamer)
+    /// Step size for position grid (smaller values = more accurate, but slower)
     pub grid_step: f64,
-    /// Minimaler Anteil der Grundfläche, der unterstützt sein muss (0.0 bis 1.0)
+    /// Minimum fraction of the base area that must be supported (0.0 to 1.0)
     pub support_ratio: f64,
-    /// Toleranz für Höhenvergleiche
+    /// Tolerance for height comparisons
     pub height_epsilon: f64,
-    /// Allgemeine numerische Toleranz
+    /// General numerical tolerance
     pub general_epsilon: f64,
-    /// Maximale erlaubte Abweichung des Schwerpunkts vom Mittelpunkt (als Ratio der Diagonale)
+    /// Maximum allowed deviation of center of gravity from center point (as ratio of diagonal)
     pub balance_limit_ratio: f64,
-    /// Relative Toleranz bei der Vorgruppierung nach Grundfläche zur Reduktion von Backtracking
+    /// Relative tolerance for pre-grouping by footprint to reduce backtracking
     pub footprint_cluster_tolerance: f64,
-    /// Erlaubt das Rotieren der Objekte, um alternative Ausrichtungen zu prüfen
+    /// Allows rotating objects to test alternative orientations
     pub allow_item_rotation: bool,
 }
 
@@ -43,7 +90,7 @@ impl PackingConfig {
     pub const DEFAULT_FOOTPRINT_CLUSTER_TOLERANCE: f64 = 0.15;
     pub const DEFAULT_ALLOW_ITEM_ROTATION: bool = false;
 
-    /// Erstellt einen Builder für benutzerdefinierte Konfiguration.
+    /// Creates a builder for custom configuration.
     pub fn builder() -> PackingConfigBuilder {
         PackingConfigBuilder::default()
     }
@@ -63,83 +110,75 @@ impl Default for PackingConfig {
     }
 }
 
-/// Builder-Pattern für PackingConfig (OOP-Prinzip).
-#[derive(Clone, Debug)]
+/// Builder pattern for PackingConfig (OOP principle).
+#[derive(Clone, Debug, Default)]
 pub struct PackingConfigBuilder {
     config: PackingConfig,
 }
 
-impl Default for PackingConfigBuilder {
-    fn default() -> Self {
-        Self {
-            config: PackingConfig::default(),
-        }
-    }
-}
-
 impl PackingConfigBuilder {
-    /// Setzt die Raster-Schrittweite.
+    /// Sets the grid step size.
     pub fn grid_step(mut self, step: f64) -> Self {
         self.config.grid_step = step;
         self
     }
 
-    /// Setzt die minimale Unterstützungsrate.
+    /// Sets the minimum support ratio.
     pub fn support_ratio(mut self, ratio: f64) -> Self {
         self.config.support_ratio = ratio;
         self
     }
 
-    /// Setzt die Höhentoleranz.
+    /// Sets the height tolerance.
     pub fn height_epsilon(mut self, epsilon: f64) -> Self {
         self.config.height_epsilon = epsilon;
         self
     }
 
-    /// Setzt die allgemeine Toleranz.
+    /// Sets the general tolerance.
     pub fn general_epsilon(mut self, epsilon: f64) -> Self {
         self.config.general_epsilon = epsilon;
         self
     }
 
-    /// Setzt das Balance-Limit als Ratio der Diagonale.
+    /// Sets the balance limit as a ratio of the diagonal.
     pub fn balance_limit_ratio(mut self, ratio: f64) -> Self {
         self.config.balance_limit_ratio = ratio;
         self
     }
 
-    /// Setzt die Toleranz für die Vorgruppierung basierend auf der Grundfläche.
+    /// Sets the tolerance for pre-grouping based on footprint.
     pub fn footprint_cluster_tolerance(mut self, tolerance: f64) -> Self {
         self.config.footprint_cluster_tolerance = tolerance;
         self
     }
 
-    /// Aktiviert oder deaktiviert Rotationen von Objekten.
+    /// Enables or disables rotation of objects.
     pub fn allow_item_rotation(mut self, allow: bool) -> Self {
         self.config.allow_item_rotation = allow;
         self
     }
 
-    /// Erstellt die finale Konfiguration.
+    /// Creates the final configuration.
     pub fn build(self) -> PackingConfig {
         self.config
     }
 }
 
-/// Abstrakte Strategien zur Gruppierung/Neuordnung von Objekten vor dem Packen.
+/// Abstract strategies for grouping/reordering objects before packing.
 ///
-/// Diese interne Trait definiert die Schnittstelle für Strategien, die die Reihenfolge
-/// (und ggf. Auswahl) von Objekten vor dem Packvorgang beeinflussen. Implementierungen
-/// können die Reihenfolge der Objekte ändern, Gruppen bilden oder Objekte filtern, um
-/// die Effizienz des Packens zu verbessern. Es wird garantiert, dass die Rückgabe
-/// eine (ggf. gefilterte) Teilmenge der Eingabe ist; Objekte können entfernt, aber
-/// nicht modifiziert werden. Die Trait ist absichtlich privat, da sie nur für interne
-/// Optimierungsstrategien gedacht ist und keine stabile API garantiert.
+/// This internal trait defines the interface for strategies that influence the order
+/// (and possibly selection) of objects before the packing process. Implementations
+/// can change the order of objects, form groups, or filter objects to improve
+/// packing efficiency. It is guaranteed that the return is a (possibly filtered)
+/// subset of the input; objects can be removed but not modified. The trait is
+/// intentionally private, as it is only intended for internal optimization
+/// strategies and does not guarantee a stable API.
 trait ObjectClusterStrategy {
     fn reorder(&self, objects: Vec<Box3D>) -> Vec<Box3D>;
 }
 
-/// Gruppiert Objekte mit kompatibler Grundfläche, um Backtracking zu reduzieren.
+/// Groups objects with compatible footprints to reduce backtracking.
 #[derive(Clone, Debug)]
 struct FootprintClusterStrategy {
     tolerance: f64,
@@ -264,7 +303,7 @@ fn orientations_for(object: &Box3D, allow_rotation: bool) -> Vec<Box3D> {
     unique
 }
 
-/// Support-Kennzahlen pro Objekt.
+/// Support metrics per object.
 #[derive(Clone, Debug, serde::Serialize, ToSchema)]
 pub struct SupportDiagnostics {
     pub object_id: usize,
@@ -272,7 +311,7 @@ pub struct SupportDiagnostics {
     pub rests_on_floor: bool,
 }
 
-/// Diagnostische Kennzahlen pro Container für Monitoring.
+/// Diagnostic metrics per container for monitoring.
 #[derive(Clone, Debug, serde::Serialize, ToSchema)]
 pub struct ContainerDiagnostics {
     pub center_of_mass_offset: f64,
@@ -283,7 +322,7 @@ pub struct ContainerDiagnostics {
     pub support_samples: Vec<SupportDiagnostics>,
 }
 
-/// Zusammenfassung wichtiger Kennzahlen über alle Container hinweg.
+/// Summary of key metrics across all containers.
 #[derive(Clone, Debug, serde::Serialize, ToSchema)]
 pub struct PackingDiagnosticsSummary {
     pub max_imbalance_ratio: f64,
@@ -301,7 +340,7 @@ impl Default for PackingDiagnosticsSummary {
     }
 }
 
-/// Ergebnis der Verpackungsberechnung.
+/// Result of the packing calculation.
 #[derive(Clone, Debug)]
 pub struct PackingResult {
     pub containers: Vec<Container>,
@@ -311,23 +350,23 @@ pub struct PackingResult {
 }
 
 impl PackingResult {
-    /// Gibt an, ob alle Objekte verpackt wurden.
+    /// Indicates whether all objects were packed.
     #[allow(dead_code)]
     pub fn is_complete(&self) -> bool {
         self.unplaced.is_empty()
     }
 
-    /// Gibt die Gesamtanzahl der Container zurück.
+    /// Returns the total number of containers.
     pub fn container_count(&self) -> usize {
         self.containers.len()
     }
 
-    /// Gibt die Anzahl unverpackter Objekte zurück.
+    /// Returns the number of unpacked objects.
     pub fn unplaced_count(&self) -> usize {
         self.unplaced.len()
     }
 
-    /// Berechnet die durchschnittliche Auslastung aller Container.
+    /// Calculates the average utilization of all containers.
     #[allow(dead_code)]
     pub fn average_utilization(&self) -> f64 {
         if self.containers.is_empty() {
@@ -341,27 +380,27 @@ impl PackingResult {
         sum / self.containers.len() as f64
     }
 
-    /// Berechnet das Gesamtgewicht aller verpackten Objekte.
+    /// Calculates the total weight of all packed objects.
     #[allow(dead_code)]
     pub fn total_packed_weight(&self) -> f64 {
         self.containers.iter().map(|c| c.total_weight()).sum()
     }
 
-    /// Liefert die aggregierten Diagnosewerte.
+    /// Returns the aggregated diagnostic values.
     #[allow(dead_code)]
     pub fn diagnostics_summary(&self) -> &PackingDiagnosticsSummary {
         &self.diagnostics_summary
     }
 }
 
-/// Objekt, das nicht platziert werden konnte.
+/// Object that could not be placed.
 #[derive(Clone, Debug)]
 pub struct UnplacedBox {
     pub object: Box3D,
     pub reason: UnplacedReason,
 }
 
-/// Gründe, warum ein Objekt nicht platziert werden konnte.
+/// Reasons why an object could not be placed.
 #[derive(Clone, Debug)]
 pub enum UnplacedReason {
     TooHeavyForContainer,
@@ -383,18 +422,18 @@ impl std::fmt::Display for UnplacedReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             UnplacedReason::TooHeavyForContainer => {
-                write!(f, "Objekt überschreitet das zulässige Gesamtgewicht")
+                write!(f, "Object exceeds the maximum allowed weight")
             }
             UnplacedReason::DimensionsExceedContainer => {
                 write!(
                     f,
-                    "Objekt passt in mindestens einer Dimension nicht in den Container"
+                    "Object does not fit in the container in at least one dimension"
                 )
             }
             UnplacedReason::NoStablePosition => {
                 write!(
                     f,
-                    "Keine stabile Position innerhalb des Containers gefunden"
+                    "No stable position found within the container"
                 )
             }
         }
@@ -432,17 +471,17 @@ fn determine_unfit_reason_across_templates(
     UnplacedReason::NoStablePosition
 }
 
-/// Hauptfunktion zur Verpackung von Objekten in Container.
+/// Main function for packing objects into containers.
 ///
-/// Sortiert Objekte nach Gewicht und Volumen (schwere/große zuerst) und platziert
-/// sie nacheinander in Container. Erstellt neue Container, wenn nötig.
+/// Sorts objects by weight and volume (heavy/large first) and places
+/// them sequentially into containers. Creates new containers when needed.
 ///
-/// # Parameter
-/// * `objects` - Liste der zu verpackenden Objekte
-/// * `container_templates` - Mögliche Container-Typen
+/// # Parameters
+/// * `objects` - List of objects to pack
+/// * `container_templates` - Available container types
 ///
-/// # Rückgabewert
-/// `PackingResult` mit platzierten Containern und ggf. unverpackten Objekten
+/// # Returns
+/// `PackingResult` with placed containers and possibly unpacked objects
 #[allow(dead_code)]
 pub fn pack_objects(
     objects: Vec<Box3D>,
@@ -451,14 +490,14 @@ pub fn pack_objects(
     pack_objects_with_config(objects, container_templates, PackingConfig::default())
 }
 
-/// Verpackung mit benutzerdefinierter Konfiguration.
+/// Packing with custom configuration.
 ///
-/// Wie `pack_objects`, aber mit anpassbaren Parametern.
+/// Like `pack_objects`, but with customizable parameters.
 ///
-/// # Parameter
-/// * `objects` - Liste der zu verpackenden Objekte
-/// * `container_templates` - Mögliche Container-Typen
-/// * `config` - Konfigurationsparameter für den Algorithmus
+/// # Parameters
+/// * `objects` - List of objects to pack
+/// * `container_templates` - Available container types
+/// * `config` - Configuration parameters for the algorithm
 pub fn pack_objects_with_config(
     objects: Vec<Box3D>,
     container_templates: Vec<ContainerBlueprint>,
@@ -467,11 +506,11 @@ pub fn pack_objects_with_config(
     pack_objects_with_progress(objects, container_templates, config, |_| {})
 }
 
-/// Ereignisse, die während des Packens auftreten, um Live-Visualisierung zu ermöglichen.
+/// Events that occur during packing to enable live visualization.
 #[derive(Clone, Debug, serde::Serialize)]
 #[serde(tag = "type")]
 pub enum PackEvent {
-    /// Ein neuer Container wird begonnen.
+    /// A new container is started.
     ContainerStarted {
         id: usize,
         dims: (f64, f64, f64),
@@ -479,7 +518,7 @@ pub enum PackEvent {
         label: Option<String>,
         template_id: Option<usize>,
     },
-    /// Ein Objekt wurde platziert.
+    /// An object was placed.
     ObjectPlaced {
         container_id: usize,
         id: usize,
@@ -488,12 +527,12 @@ pub enum PackEvent {
         dims: (f64, f64, f64),
         total_weight: f64,
     },
-    /// Aktualisierte Diagnostik eines Containers.
+    /// Updated diagnostics for a container.
     ContainerDiagnostics {
         container_id: usize,
         diagnostics: ContainerDiagnostics,
     },
-    /// Ein Objekt konnte nicht platziert werden.
+    /// An object could not be placed.
     ObjectRejected {
         id: usize,
         weight: f64,
@@ -501,7 +540,7 @@ pub enum PackEvent {
         reason_code: String,
         reason_text: String,
     },
-    /// Packen abgeschlossen.
+    /// Packing completed.
     Finished {
         containers: usize,
         unplaced: usize,
@@ -509,9 +548,9 @@ pub enum PackEvent {
     },
 }
 
-/// Verpackung mit benutzerdefinierter Konfiguration und Live-Progress Callback.
+/// Packing with custom configuration and live progress callback.
 ///
-/// Ruft für jeden wichtigen Schritt ein Callback auf (geeignet für SSE/WebSocket).
+/// Calls a callback for each important step (suitable for SSE/WebSocket).
 pub fn pack_objects_with_progress(
     objects: Vec<Box3D>,
     container_templates: Vec<ContainerBlueprint>,
@@ -572,7 +611,7 @@ pub fn pack_objects_with_progress(
             })
     });
 
-    // Sortierung: Schwere und große Objekte zuerst (Stabilitätsprinzip)
+    // Sorting: Heavy and large objects first (stability principle)
     let mut objects = objects;
     objects.sort_by(|a, b| {
         b.weight
@@ -723,18 +762,18 @@ pub fn pack_objects_with_progress(
     }
 }
 
-/// Findet eine stabile Position für ein Objekt in einem Container.
+/// Finds a stable position for an object in a container.
 ///
-/// Durchsucht verschiedene Z-Ebenen, Y- und X-Positionen und bewertet jede
-/// Position nach Stabilität, Unterstützung, Gewichtsverteilung und Balance.
+/// Searches through different Z-layers, Y and X positions and evaluates each
+/// position for stability, support, weight distribution, and balance.
 ///
-/// # Parameter
-/// * `b` - Das zu platzierende Objekt
-/// * `cont` - Der Container
-/// * `config` - Konfigurationsparameter
+/// # Parameters
+/// * `b` - The object to place
+/// * `cont` - The container
+/// * `config` - Configuration parameters
 ///
-/// # Rückgabewert
-/// `Some((x, y, z))` bei erfolgreicher Platzierung, sonst `None`
+/// # Returns
+/// `Some((x, y, z))` on successful placement, otherwise `None`
 fn find_stable_position(
     b: &Box3D,
     cont: &Container,
@@ -757,7 +796,7 @@ fn find_stable_position(
         config.general_epsilon,
     );
 
-    // Sammle alle relevanten Z-Ebenen (Boden + Oberseiten aller platzierten Objekte)
+    // Collect all relevant Z-layers (floor + tops of all placed objects)
     let mut z_layers: Vec<f64> = cont
         .placed
         .iter()
@@ -792,12 +831,12 @@ fn find_stable_position(
                     position: (x, y, z),
                 };
 
-                // Prüfe auf Kollisionen
+                // Check for collisions
                 if cont.placed.iter().any(|p| intersects(p, &candidate)) {
                     continue;
                 }
 
-                // Bei Platzierung über dem Boden: Prüfe Stabilität
+                // For placement above the floor: Check stability
                 if z > 0.0 {
                     if !has_sufficient_support(&candidate, cont, config) {
                         continue;
@@ -806,7 +845,7 @@ fn find_stable_position(
                         continue;
                     }
                     if !is_center_supported(&candidate, cont, config) {
-                        // Verhindert Überhänge, bei denen der Schwerpunkt nicht abgestützt ist
+                        // Prevents overhangs where the center of gravity is not supported
                         continue;
                     }
                 }
@@ -826,15 +865,15 @@ fn find_stable_position(
     best_in_limit.or(best_any).map(|(pos, _)| pos)
 }
 
-/// Generiert mögliche Positionen entlang einer Achse.
+/// Generates possible positions along an axis.
 ///
-/// Erstellt ein Raster von Positionen mit der angegebenen Schrittweite.
+/// Creates a grid of positions with the specified step size.
 ///
-/// # Parameter
-/// * `container_len` - Länge des Containers in dieser Dimension
-/// * `object_len` - Länge des Objekts in dieser Dimension
-/// * `step` - Schrittweite des Rasters
-/// * `epsilon` - Numerische Toleranz
+/// # Parameters
+/// * `container_len` - Length of the container in this dimension
+/// * `object_len` - Length of the object in this dimension
+/// * `step` - Step size of the grid
+/// * `epsilon` - Numerical tolerance
 fn axis_positions(container_len: f64, object_len: f64, step: f64, epsilon: f64) -> Vec<f64> {
     let max_pos = (container_len - object_len).max(0.0);
     let mut positions = Vec::new();
@@ -863,14 +902,14 @@ fn axis_positions(container_len: f64, object_len: f64, step: f64, epsilon: f64) 
     positions
 }
 
-/// Prüft, ob ein Objekt korrekt nach Gewicht unterstützt wird.
+/// Checks if an object is correctly supported by weight.
 ///
-/// Stellt sicher, dass keine schwereren Objekte auf leichteren liegen.
+/// Ensures that no heavier objects rest on lighter ones.
 ///
-/// # Parameter
-/// * `b` - Das zu prüfende platzierte Objekt
-/// * `cont` - Der Container
-/// * `config` - Konfigurationsparameter
+/// # Parameters
+/// * `b` - The placed object to check
+/// * `cont` - The container
+/// * `config` - Configuration parameters
 fn supports_weight_correctly(b: &PlacedBox, cont: &Container, config: &PackingConfig) -> bool {
     if b.position.2 <= config.height_epsilon {
         return true;
@@ -895,7 +934,7 @@ fn supports_weight_correctly(b: &PlacedBox, cont: &Container, config: &PackingCo
 
         has_support = true;
 
-        // Schwereres Objekt darf nicht auf leichterem liegen
+        // Heavier object must not rest on lighter one
         if p.object.weight + config.general_epsilon < b.object.weight {
             return false;
         }
@@ -904,14 +943,14 @@ fn supports_weight_correctly(b: &PlacedBox, cont: &Container, config: &PackingCo
     has_support
 }
 
-/// Prüft, ob ein Objekt ausreichend unterstützt wird.
+/// Checks if an object is sufficiently supported.
 ///
-/// Berechnet den Anteil der Grundfläche, der auf anderen Objekten aufliegt.
+/// Calculates the fraction of the base area resting on other objects.
 ///
 /// # Parameters
-/// * `b` - Das zu prüfende platzierte Objekt
-/// * `cont` - Der Container
-/// * `config` - Konfigurationsparameter
+/// * `b` - The placed object to check
+/// * `cont` - The container
+/// * `config` - Configuration parameters
 fn support_ratio_of(b: &PlacedBox, cont: &Container, config: &PackingConfig) -> f64 {
     if b.position.2 <= config.height_epsilon {
         return 1.0;
@@ -953,10 +992,10 @@ fn has_sufficient_support(b: &PlacedBox, cont: &Container, config: &PackingConfi
     support_ratio_of(b, cont, config) >= required_support
 }
 
-/// Prüft, ob der Schwerpunkt des Objekts (Projektion auf XY) von der Auflagefläche getragen wird.
+/// Checks if the center of gravity of the object (XY projection) is supported by the bearing surface.
 ///
-/// Eine einfache, robuste Stabilitätsheuristik: Es muss mindestens eine tragende Box direkt unter
-/// dem projizierten Mittelpunkt liegen (gleiche Z-Ebene, XY enthält Center-Punkt).
+/// A simple, robust stability heuristic: There must be at least one supporting box directly under
+/// the projected center point (same Z-level, XY contains center point).
 fn is_center_supported(b: &PlacedBox, cont: &Container, config: &PackingConfig) -> bool {
     if b.position.2 <= config.height_epsilon {
         return true;
@@ -981,14 +1020,14 @@ fn is_center_supported(b: &PlacedBox, cont: &Container, config: &PackingConfig) 
     false
 }
 
-/// Berechnet die Balance/Schwerpunktabweichung nach Hinzufügen eines Objekts.
+/// Calculates the balance/center of gravity deviation after adding an object.
 ///
-/// Berechnet den gewichteten Schwerpunkt aller Objekte und dessen Distanz
-/// zum geometrischen Mittelpunkt des Containers.
+/// Computes the weighted center of gravity of all objects and its distance
+/// to the geometric center of the container.
 ///
-/// # Parameter
-/// * `cont` - Der Container
-/// * `new_box` - Das hinzuzufügende Objekt
+/// # Parameters
+/// * `cont` - The container
+/// * `new_box` - The object to add
 fn calculate_balance_after(cont: &Container, new_box: &PlacedBox) -> f64 {
     let new_point = (
         new_box.position.0 + new_box.object.dims.0 / 2.0,
@@ -1013,9 +1052,9 @@ fn calculate_balance_after(cont: &Container, new_box: &PlacedBox) -> f64 {
     }
 }
 
-/// Bewertung einer Platzierungsposition.
+/// Evaluation of a placement position.
 ///
-/// Niedrigere Werte sind besser (z zuerst, dann y, dann x, dann balance).
+/// Lower values are better (z first, then y, then x, then balance).
 #[derive(Clone, Copy)]
 struct PlacementScore {
     z: f64,
@@ -1024,13 +1063,13 @@ struct PlacementScore {
     balance: f64,
 }
 
-/// Aktualisiert die beste gefundene Position.
+/// Updates the best found position.
 ///
 /// # Parameters
-/// * `best` - Aktuell beste Position
-/// * `position` - Neue Kandidaten-Position
-/// * `score` - Score der neuen Position
-/// * `config` - Konfigurationsparameter
+/// * `best` - Currently best position
+/// * `position` - New candidate position
+/// * `score` - Score of the new position
+/// * `config` - Configuration parameters
 fn update_best(
     best: &mut Option<((f64, f64, f64), PlacementScore)>,
     position: (f64, f64, f64),
@@ -1049,14 +1088,14 @@ fn update_best(
     }
 }
 
-/// Vergleicht zwei Platzierungsscores.
+/// Compares two placement scores.
 ///
-/// Priorität: z (niedrig) > y (niedrig) > x (niedrig) > balance (niedrig)
+/// Priority: z (low) > y (low) > x (low) > balance (low)
 ///
 /// # Parameters
-/// * `new` - Neuer Score
-/// * `current` - Aktueller Score
-/// * `config` - Konfigurationsparameter
+/// * `new` - New score
+/// * `current` - Current score
+/// * `config` - Configuration parameters
 fn is_better_score(new: PlacementScore, current: PlacementScore, config: &PackingConfig) -> bool {
     match compare_with_epsilon(new.z, current.z, config.height_epsilon) {
         Ordering::Less => return true,
@@ -1079,12 +1118,12 @@ fn is_better_score(new: PlacementScore, current: PlacementScore, config: &Packin
     new.balance + config.general_epsilon < current.balance
 }
 
-/// Vergleicht zwei Werte mit Toleranz.
+/// Compares two values with tolerance.
 ///
 /// # Parameters
-/// * `a` - Erster Wert
-/// * `b` - Zweiter Wert
-/// * `eps` - Toleranz
+/// * `a` - First value
+/// * `b` - Second value
+/// * `eps` - Tolerance
 fn compare_with_epsilon(a: f64, b: f64, eps: f64) -> Ordering {
     if (a - b).abs() <= eps {
         Ordering::Equal
@@ -1095,11 +1134,11 @@ fn compare_with_epsilon(a: f64, b: f64, eps: f64) -> Ordering {
     }
 }
 
-/// Berechnet die maximale erlaubte Balance-Abweichung.
+/// Calculates the maximum allowed balance deviation.
 ///
 /// # Parameters
-/// * `cont` - Der Container
-/// * `config` - Konfigurationsparameter
+/// * `cont` - The container
+/// * `config` - Configuration parameters
 fn calculate_balance_limit(cont: &Container, config: &PackingConfig) -> f64 {
     let half_x = cont.dims.0 / 2.0;
     let half_y = cont.dims.1 / 2.0;
@@ -1152,7 +1191,7 @@ where
     }
 }
 
-/// Berechnet diagnostische Kennzahlen für einen Container.
+/// Calculates diagnostic metrics for a container.
 pub fn compute_container_diagnostics(
     cont: &Container,
     config: &PackingConfig,
@@ -1253,7 +1292,7 @@ impl SummaryAccumulator {
     }
 }
 
-/// Aggregiert Diagnosen über mehrere Container.
+/// Aggregates diagnostics across multiple containers.
 pub fn summarize_diagnostics<'a, I>(diagnostics: I) -> PackingDiagnosticsSummary
 where
     I: IntoIterator<Item = &'a ContainerDiagnostics>,
@@ -1306,7 +1345,7 @@ mod tests {
 
                 assert!(
                     lower.object.weight + config.general_epsilon >= upper.object.weight,
-                    "Objekt {} ({}kg) unter Objekt {} ({}kg) verletzt Gewichtssortierung",
+                    "Object {} ({}kg) under object {} ({}kg) violates weight sorting",
                     lower.object.id,
                     lower.object.weight,
                     upper.object.id,
@@ -1666,7 +1705,7 @@ mod tests {
             .placed
             .iter()
             .find(|p| p.object.id == 5)
-            .expect("schwerstes Objekt fehlt");
+            .expect("heaviest object missing");
         assert!(heavy.position.0 <= config.grid_step + config.general_epsilon);
         assert!(heavy.position.1 <= config.grid_step + config.general_epsilon);
 
@@ -1674,7 +1713,7 @@ mod tests {
             .placed
             .iter()
             .find(|p| p.object.id == 4)
-            .expect("zweit schwerstes Objekt fehlt");
+            .expect("second heaviest object missing");
         assert!(second.position.2 <= config.height_epsilon);
     }
 

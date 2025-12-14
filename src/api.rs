@@ -1,7 +1,7 @@
-//! REST-API für den Packing-Service.
+//! REST API for the packing service.
 //!
-//! Bietet HTTP-Endpunkte zur Kommunikation mit dem Frontend.
-//! Verwendet Axum als Web-Framework und unterstützt CORS.
+//! Provides HTTP endpoints for communication with the frontend.
+//! Uses Axum as the web framework and supports CORS.
 
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Json, State};
@@ -85,9 +85,9 @@ fn openapi_doc() -> &'static utoipa::openapi::OpenApi {
 #[folder = "web/"]
 struct WebAssets;
 
-/// Request-Struktur für den Packing-Endpunkt.
+/// Request structure for the packing endpoint.
 ///
-/// `containers` enthält die möglichen Verpackungstypen, die kombiniert werden dürfen.
+/// `containers` contains the possible packaging types that can be combined.
 #[derive(Deserialize, Clone, ToSchema)]
 pub struct ContainerRequest {
     pub name: Option<String>,
@@ -183,10 +183,10 @@ impl PackRequest {
     }
 }
 
-/// Response-Struktur mit allen verpackten Containern.
+/// Response structure with all packed containers.
 ///
-/// # Felder
-/// * `results` - Vector von Containern mit platzierten Objekten
+/// # Fields
+/// * `results` - Vector of containers with placed objects
 #[derive(Serialize, ToSchema)]
 pub struct PackResponse {
     pub results: Vec<PackedContainer>,
@@ -195,12 +195,12 @@ pub struct PackResponse {
     pub diagnostics_summary: PackingDiagnosticsSummary,
 }
 
-/// Einzelner Container mit Metadaten und platzierten Objekten.
+/// Single container with metadata and placed objects.
 ///
-/// # Felder
-/// * `id` - Container-Nummer (1-basiert)
-/// * `total_weight` - Gesamtgewicht aller Objekte im Container
-/// * `placed` - Liste der platzierten Objekte mit Positionen
+/// # Fields
+/// * `id` - Container number (1-based)
+/// * `total_weight` - Total weight of all objects in the container
+/// * `placed` - List of placed objects with positions
 #[derive(Serialize, ToSchema)]
 pub struct PackedContainer {
     pub id: usize,
@@ -214,13 +214,13 @@ pub struct PackedContainer {
     pub diagnostics: ContainerDiagnostics,
 }
 
-/// Einzelnes platziertes Objekt in der Response.
+/// Single placed object in the response.
 ///
-/// # Felder
-/// * `id` - Objekt-ID
-/// * `pos` - Position (x, y, z) im Container
-/// * `weight` - Gewicht in kg
-/// * `dims` - Dimensionen (Breite, Tiefe, Höhe)
+/// # Fields
+/// * `id` - Object ID
+/// * `pos` - Position (x, y, z) in the container
+/// * `weight` - Weight in kg
+/// * `dims` - Dimensions (width, depth, height)
 #[derive(Serialize, ToSchema)]
 pub struct PackedObject {
     pub id: usize,
@@ -267,7 +267,7 @@ fn error_response(
 fn json_deserialize_error(err: JsonRejection) -> Response {
     error_response(
         StatusCode::UNPROCESSABLE_ENTITY,
-        "Ungültige JSON-Daten",
+        "Invalid JSON data",
         err.to_string(),
     )
 }
@@ -275,7 +275,7 @@ fn json_deserialize_error(err: JsonRejection) -> Response {
 fn validation_error(details: impl Into<String>) -> Response {
     error_response(
         StatusCode::UNPROCESSABLE_ENTITY,
-        "Ungültige Eingabedaten",
+        "Invalid input data",
         details,
     )
 }
@@ -283,7 +283,7 @@ fn validation_error(details: impl Into<String>) -> Response {
 fn container_config_error(details: impl Into<String>) -> Response {
     error_response(
         StatusCode::UNPROCESSABLE_ENTITY,
-        "Ungültige Container-Konfiguration",
+        "Invalid container configuration",
         details,
     )
 }
@@ -299,7 +299,7 @@ fn parse_pack_request(
     match payload.into_validated() {
         Ok(validated) => Ok(validated),
         Err(PackRequestValidationError::MissingContainers) => Err(validation_error(
-            "Mindestens ein Verpackungstyp muss angegeben werden",
+            "At least one packaging type must be specified",
         )),
         Err(PackRequestValidationError::InvalidContainer(err)) => {
             Err(container_config_error(err.to_string()))
@@ -311,7 +311,7 @@ fn parse_pack_request(
 }
 
 impl PackResponse {
-    /// Erstellt eine PackResponse aus einem PackingResult (DRY-Prinzip).
+    /// Creates a PackResponse from a PackingResult (DRY principle).
     pub fn from_packing_result(result: PackingResult) -> Self {
         let PackingResult {
             containers,
@@ -394,14 +394,14 @@ impl PackResponse {
             PackingDiagnosticsSummary
         )
     ),
-    tags((name = "packing", description = "Endpunkte zur Verpackungsoptimierung"))
+    tags((name = "packing", description = "Endpoints for packing optimization"))
 )]
 struct ApiDoc;
 
-/// Startet den API-Server auf Port 8080.
+/// Starts the API server on port 8080.
 ///
-/// Konfiguriert CORS für Cross-Origin-Requests vom Frontend.
-/// Blockiert bis der Server beendet wird.
+/// Configures CORS for cross-origin requests from the frontend.
+/// Blocks until the server is terminated.
 pub async fn start_api_server(config: ApiConfig, optimizer_config: OptimizerConfig) {
     let cors = CorsLayer::new()
         .allow_methods(Any)
@@ -411,10 +411,10 @@ pub async fn start_api_server(config: ApiConfig, optimizer_config: OptimizerConf
     let state = ApiState { optimizer_config };
 
     let app = Router::new()
-        // API-Endpunkte
+        // API endpoints
         .route("/pack", post(handle_pack))
         .route("/pack_stream", post(handle_pack_stream))
-        // API-Dokumentation
+        // API documentation
         .route("/docs/openapi.json", get(serve_openapi_json))
         .route("/docs", get(serve_openapi_ui))
         // Web-UI (embedded)
@@ -427,50 +427,50 @@ pub async fn start_api_server(config: ApiConfig, optimizer_config: OptimizerConf
     let listener = match tokio::net::TcpListener::bind(addr).await {
         Ok(listener) => listener,
         Err(err) => {
-            panic!("❌ Konnte API-Server nicht auf {} binden: {}", addr, err);
+            panic!("❌ Could not bind API server to {}: {}", addr, err);
         }
     };
 
     let display_host = config.display_host().to_string();
     println!(
-        "🚀 Server läuft auf http://{}:{}",
+        "🚀 Server running on http://{}:{}",
         display_host,
         config.port()
     );
     if config.binds_to_all_interfaces() && config.uses_default_host() {
-        println!("💡 Lokaler Zugriff: http://localhost:{}", config.port());
+        println!("💡 Local access: http://localhost:{}", config.port());
     }
-    println!("📦 API-Endpunkte:");
+    println!("📦 API Endpoints:");
     println!("   - POST /pack");
     println!("   - POST /pack_stream");
-    println!("📑 Dokumentation:");
+    println!("📑 Documentation:");
     println!("   - GET /docs");
     println!("   - GET /docs/openapi.json");
     println!("🌐 Web-UI: http://{}:{}", display_host, config.port());
 
     if let Err(err) = axum::serve(listener, app).await {
-        eprintln!("❌ API-Server wurde mit einem Fehler beendet: {err}");
+        eprintln!("❌ API server terminated with an error: {err}");
     }
 }
 
-/// Handler für POST /pack Endpunkt.
+/// Handler for POST /pack endpoint.
 ///
-/// Nimmt eine Liste von Objekten entgegen und verpackt sie optimal in Container.
+/// Takes a list of objects and packs them optimally into containers.
 ///
-/// # Parameter
-/// * `payload` - JSON-Payload mit Container-Dimensionen und Objekten
+/// # Parameters
+/// * `payload` - JSON payload with container dimensions and objects
 ///
-/// # Rückgabewert
-/// JSON-Response mit allen benötigten Containern und platzierten Objekten
+/// # Returns
+/// JSON response with all required containers and placed objects
 #[utoipa::path(
     post,
     path = "/pack",
     request_body = PackRequest,
     responses(
-        (status = 200, description = "Erfolgreiche Verpackung der Objekte", body = PackResponse),
+        (status = 200, description = "Successfully packed objects", body = PackResponse),
         (
             status = UNPROCESSABLE_ENTITY,
-            description = "Ungültige Anfrage oder Container-Konfiguration",
+            description = "Invalid request or container configuration",
             body = ErrorResponse
         )
     ),
@@ -490,7 +490,7 @@ async fn handle_pack(
     let (objects, container_blueprints, allow_rotations_override) = request.into_parts();
 
     println!(
-        "📥 Neue Pack-Anfrage: {} Objekte, {} Verpackungstypen",
+        "📥 New pack request: {} objects, {} packaging types",
         object_count, container_count
     );
     let mut packing_config = state.optimizer_config.packing_config();
@@ -499,7 +499,7 @@ async fn handle_pack(
     }
     let packing_result = pack_objects_with_config(objects, container_blueprints, packing_config);
     println!(
-        "📦 Ergebnis: {} Container, {} unverpackte Objekte",
+        "📦 Result: {} containers, {} unpacked objects",
         packing_result.container_count(),
         packing_result.unplaced_count()
     );
@@ -508,10 +508,10 @@ async fn handle_pack(
     (StatusCode::OK, Json(response)).into_response()
 }
 
-/// Handler für POST /pack_stream Endpunkt (SSE).
+/// Handler for POST /pack_stream endpoint (SSE).
 ///
-/// Streamt die Pack-Events in Echtzeit als Server-Sent Events (text/event-stream).
-/// Das Frontend kann die Schritte live visualisieren, ohne auf das Gesamtergebnis zu warten.
+/// Streams pack events in real-time as Server-Sent Events (text/event-stream).
+/// The frontend can visualize the steps live without waiting for the complete result.
 #[utoipa::path(
     post,
     path = "/pack_stream",
@@ -519,13 +519,13 @@ async fn handle_pack(
     responses(
         (
             status = 200,
-            description = "Streamt Pack-Events in Echtzeit",
+            description = "Streams pack events in real-time",
             content_type = "text/event-stream",
             body = String
         ),
         (
             status = UNPROCESSABLE_ENTITY,
-            description = "Ungültige Anfrage oder Container-Konfiguration",
+            description = "Invalid request or container configuration",
             body = ErrorResponse
         )
     ),
@@ -553,7 +553,7 @@ async fn handle_pack_stream(
         let _ = pack_objects_with_progress(objects, container_blueprints, packing_config, |evt| {
             if let Ok(json) = serde_json::to_string(evt) {
                 if tx.blocking_send(json).is_err() {
-                    // Empfänger hat den Stream geschlossen; verbleibende Events werden verworfen.
+                    // Receiver has closed the stream; remaining events are discarded.
                     return;
                 }
             }
@@ -571,7 +571,7 @@ async fn handle_pack_stream(
         .into_response()
 }
 
-/// Serviert die index.html Hauptseite
+/// Serves the index.html main page
 async fn serve_index() -> Response {
     match WebAssets::get("index.html") {
         Some(content) => Html(content.data).into_response(),
@@ -579,7 +579,7 @@ async fn serve_index() -> Response {
     }
 }
 
-/// Serviert statische Assets (JS, CSS, etc.)
+/// Serves static assets (JS, CSS, etc.)
 async fn serve_static(uri: Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
 
@@ -610,11 +610,11 @@ mod tests {
         let paths = &doc.paths.paths;
         assert!(
             paths.contains_key("/pack"),
-            "OpenAPI-Dokumentation fehlt der /pack Pfad"
+            "OpenAPI documentation is missing the /pack path"
         );
         assert!(
             paths.contains_key("/pack_stream"),
-            "OpenAPI-Dokumentation fehlt der /pack_stream Pfad"
+            "OpenAPI documentation is missing the /pack_stream path"
         );
     }
 
@@ -624,12 +624,12 @@ mod tests {
         let components = doc
             .components
             .as_ref()
-            .expect("OpenAPI-Dokumentation enthält keine Components");
+            .expect("OpenAPI documentation contains no components");
         let schemas = &components.schemas;
         for name in ["PackRequest", "PackResponse", "ErrorResponse"] {
             assert!(
                 schemas.contains_key(name),
-                "Erwartetes Schema '{}' fehlt im OpenAPI-Spec",
+                "Expected schema '{}' is missing from OpenAPI spec",
                 name
             );
         }

@@ -17,7 +17,7 @@ let liveDiagnosticsSummary = null;
 const EPSILON_COMPARISON = 1e-6; // For dimension comparisons and fitting checks
 const EPSILON_DEDUPLICATION = 1e-6; // For exact equality checks in deduplication (matches backend)
 
-// Konfigurierbare Parameter
+// Configurable parameters
 let config = {
   containers: [
     { id: 1, name: 'Standard 70×60×30', dims: [70, 60, 30], maxWeight: 500 },
@@ -227,7 +227,7 @@ function updateStats(container, dims, visibleCount = null) {
   const label = container.label ?? null;
   const containerTitle = label
     ? `${label} (Container ${currentContainerIndex + 1})`
-    : `${liveMode ? 'Live-Container' : 'Container'} ${
+    : `${liveMode ? 'Live Container' : 'Container'} ${
         currentContainerIndex + 1
       }`;
   const diagnostics = container.diagnostics ?? null;
@@ -257,8 +257,8 @@ function updateStats(container, dims, visibleCount = null) {
     <p><strong>Balance:</strong> ${formatPercent(
       diagnostics.imbalance_ratio
     )} (Limit ${limitText})</p>
-    <p><strong>Schwerpunkt-Abstand:</strong> ${offsetText}</p>
-    <p><strong>Unterstützung:</strong> Ø ${formatPlainPercent(
+    <p><strong>Center of Mass Offset:</strong> ${offsetText}</p>
+    <p><strong>Support:</strong> Ø ${formatPlainPercent(
       diagnostics.average_support_percent
     )} · min ${formatPlainPercent(diagnostics.minimum_support_percent)}</p>
   `
@@ -267,9 +267,9 @@ function updateStats(container, dims, visibleCount = null) {
   const summaryHtml = summary
     ? `
       <hr />
-      <p><strong>Diagnostik (gesamt):</strong></p>
-      <p>Max. Ungleichgewicht: ${formatPercent(summary.max_imbalance_ratio)}</p>
-      <p>Unterstützung Ø / min: ${formatPlainPercent(
+      <p><strong>Diagnostics (total):</strong></p>
+      <p>Max. Imbalance: ${formatPercent(summary.max_imbalance_ratio)}</p>
+      <p>Support Ø / min: ${formatPlainPercent(
         summary.average_support_percent
       )} · ${formatPlainPercent(summary.worst_support_percent)}</p>
     `
@@ -284,15 +284,15 @@ function updateStats(container, dims, visibleCount = null) {
       : 1
   }
     </h3>
-    <p><strong>Abmessungen:</strong> ${dims.join(' × ')}</p>
-    <p><strong>Objekte:</strong> ${objectCount} / ${container.placed.length}</p>
-    <p><strong>Gewicht:</strong> ${totalWeight.toFixed(2)} kg${
+    <p><strong>Dimensions:</strong> ${dims.join(' × ')}</p>
+    <p><strong>Objects:</strong> ${objectCount} / ${container.placed.length}</p>
+    <p><strong>Weight:</strong> ${totalWeight.toFixed(2)} kg${
     maxWeight ? ` / ${maxWeight} kg` : ''
   }</p>
-    <p><strong>Auslastung:</strong> ${utilization}%</p>
+    <p><strong>Utilization:</strong> ${utilization}%</p>
     ${
       unplacedCount > 0
-        ? `<p><strong>Nicht verpackt:</strong> ${unplacedCount}</p>`
+        ? `<p><strong>Not packed:</strong> ${unplacedCount}</p>`
         : ''
     }
     ${diagnosticsHtml}
@@ -300,7 +300,7 @@ function updateStats(container, dims, visibleCount = null) {
   `;
 }
 
-// Konfiguration Management
+// Configuration Management
 function openConfigModal() {
   const modal = document.getElementById('configModal');
   modal.style.display = 'block';
@@ -325,18 +325,18 @@ function renderContainerTypesList() {
       (entry, index) => `
     <div class="object-item">
       <div class="object-header">
-        <h4>Verpackungstyp ${index + 1}</h4>
-        <button class="btn-remove" onclick="removeContainerType(${index})">🗑️ Entfernen</button>
+        <h4>Container Type ${index + 1}</h4>
+        <button class="btn-remove" onclick="removeContainerType(${index})">🗑️ Remove</button>
       </div>
       <div class="form-group">
-        <label>Bezeichnung</label>
+        <label>Label</label>
         <input type="text" value="${
           entry.name ?? ''
         }" placeholder="Optional" maxlength="60"
                oninput="updateContainerType(${index}, 'name', null, this.value)" />
       </div>
       <div class="form-group">
-        <label>Dimensionen (B × T × H)</label>
+        <label>Dimensions (W × D × H)</label>
         <div class="form-row">
           <input type="number" value="${entry.dims[0]}" min="1" step="5"
                  onchange="updateContainerType(${index}, 'dims', 0, this.value)" />
@@ -347,7 +347,7 @@ function renderContainerTypesList() {
         </div>
       </div>
       <div class="form-group">
-        <label>Maximales Gewicht (kg)</label>
+        <label>Maximum Weight (kg)</label>
         <input type="number" value="${entry.maxWeight}" min="0.1" step="5"
                onchange="updateContainerType(${index}, 'maxWeight', null, this.value)" />
       </div>
@@ -364,7 +364,7 @@ window.updateContainerType = function (index, field, subIndex, rawValue) {
   if (field === 'dims') {
     const value = parseFloat(rawValue);
     if (!Number.isFinite(value) || value <= 0) {
-      alert('Bitte gib eine positive Zahl für die Dimension an.');
+      alert('Please enter a positive number for the dimension.');
       renderContainerTypesList();
       return;
     }
@@ -372,7 +372,7 @@ window.updateContainerType = function (index, field, subIndex, rawValue) {
   } else if (field === 'maxWeight') {
     const value = parseFloat(rawValue);
     if (!Number.isFinite(value) || value <= 0) {
-      alert('Bitte gib ein positives Maximalgewicht an.');
+      alert('Please enter a positive maximum weight.');
       renderContainerTypesList();
       return;
     }
@@ -409,11 +409,11 @@ function renderObjectsList() {
       (obj, index) => `
     <div class="object-item">
       <div class="object-header">
-        <h4>Objekt ${obj.id}</h4>
-        <button class="btn-remove" onclick="removeObject(${index})">🗑️ Entfernen</button>
+        <h4>Object ${obj.id}</h4>
+        <button class="btn-remove" onclick="removeObject(${index})">🗑️ Remove</button>
       </div>
       <div class="form-group">
-        <label>Dimensionen (B × T × H)</label>
+        <label>Dimensions (W × D × H)</label>
         <div class="form-row">
           <input type="number" value="${obj.dims[0]}" min="1" step="5"
                  onchange="updateObject(${index}, 'dims', 0, this.value)" />
@@ -424,7 +424,7 @@ function renderObjectsList() {
         </div>
       </div>
       <div class="form-group">
-        <label>Gewicht (kg)</label>
+        <label>Weight (kg)</label>
         <input type="number" value="${obj.weight}" min="0.1" step="1"
                onchange="updateObject(${index}, 'weight', null, this.value)" />
       </div>
@@ -438,7 +438,7 @@ window.updateObject = function (index, field, subIndex, value) {
   if (field === 'dims') {
     const numValue = parseFloat(value);
     if (!Number.isFinite(numValue) || numValue <= 0) {
-      alert('Bitte gib eine positive Zahl für die Objekt-Dimension an.');
+      alert('Please enter a positive number for the object dimension.');
       renderObjectsList();
       return;
     }
@@ -446,7 +446,7 @@ window.updateObject = function (index, field, subIndex, value) {
   } else if (field === 'weight') {
     const numValue = parseFloat(value);
     if (!Number.isFinite(numValue) || numValue <= 0) {
-      alert('Bitte gib ein positives Objektgewicht an.');
+      alert('Please enter a positive object weight.');
       renderObjectsList();
       return;
     }
@@ -471,7 +471,7 @@ function addObject() {
 
 function saveConfig() {
   if (config.containers.length === 0) {
-    alert('Mindestens ein Verpackungstyp ist erforderlich!');
+    alert('At least one container type is required!');
     return;
   }
 
@@ -484,12 +484,12 @@ function saveConfig() {
       c.maxWeight <= 0
   );
   if (invalidContainer) {
-    alert('Bitte prüfe Dimensionen und Gewichte der Verpackungstypen.');
+    alert('Please check dimensions and weights of the container types.');
     return;
   }
 
   if (config.objects.length === 0) {
-    alert('Mindestens ein Objekt erforderlich!');
+    alert('At least one object is required!');
     return;
   }
 
@@ -502,17 +502,17 @@ function saveConfig() {
       o.weight <= 0
   );
   if (invalidObject) {
-    alert('Bitte prüfe Dimensionen und Gewicht der Objekte.');
+    alert('Please check dimensions and weight of the objects.');
     return;
   }
 
   closeConfigModal();
-  console.log('✅ Konfiguration gespeichert:', config);
+  console.log('✅ Configuration saved:', config);
 }
 
 function describeContainerType(container, index) {
   const name = container.name?.trim();
-  const label = name && name.length ? name : `Verpackungstyp ${index + 1}`;
+  const label = name && name.length ? name : `Container Type ${index + 1}`;
   return `${label} (${container.dims.join(' × ')} | ${container.maxWeight}kg)`;
 }
 
@@ -522,7 +522,7 @@ function collectConfigIssues() {
   if (config.containers.length === 0) {
     issues.push({
       type: 'config',
-      message: 'Es ist kein Verpackungstyp definiert.',
+      message: 'No container type is defined.',
     });
     return issues;
   }
@@ -539,7 +539,7 @@ function collectConfigIssues() {
         message: `${describeContainerType(
           container,
           index
-        )} hat ungültige Dimensionen.`,
+        )} has invalid dimensions.`,
       });
     }
 
@@ -550,7 +550,7 @@ function collectConfigIssues() {
         message: `${describeContainerType(
           container,
           index
-        )} hat ein ungültiges Maximalgewicht.`,
+        )} has an invalid maximum weight.`,
       });
     }
   });
@@ -569,8 +569,8 @@ function collectConfigIssues() {
         id: obj.id,
         type: 'dimensions',
         details: config.allowRotations
-          ? 'Kein Verpackungstyp bietet ausreichend Platz, selbst mit Rotation.'
-          : 'Kein Verpackungstyp bietet ausreichend Platz.',
+          ? 'No container type offers enough space, even with rotation.'
+          : 'No container type offers enough space.',
       });
       return;
     }
@@ -583,7 +583,7 @@ function collectConfigIssues() {
       issues.push({
         id: obj.id,
         type: 'weight',
-        details: 'Kein Verpackungstyp trägt das Objektgewicht.',
+        details: 'No container type supports the object weight.',
       });
     }
   });
@@ -598,31 +598,31 @@ function ensureConfigValidOrNotify() {
   }
 
   const message =
-    '⚠️ Die aktuelle Konfiguration enthält Probleme:\n\n' +
+    '⚠️ The current configuration contains issues:\n\n' +
     issues
       .map((issue) => {
         switch (issue.type) {
           case 'dimensions':
-            return `Objekt ${issue.id}: passt in keinen Verpackungstyp (${issue.details}).`;
+            return `Object ${issue.id}: does not fit in any container type (${issue.details}).`;
           case 'weight':
-            return `Objekt ${issue.id}: überschreitet alle Maximalgewichte (${issue.details}).`;
+            return `Object ${issue.id}: exceeds all maximum weights (${issue.details}).`;
           case 'container':
-            return `Verpackung: ${issue.message}`;
+            return `Container: ${issue.message}`;
           case 'config':
             return issue.message;
           default:
-            return 'Unbekanntes Problem in der Konfiguration.';
+            return 'Unknown problem in the configuration.';
         }
       })
       .join('\n') +
-    '\n\nBitte passe Container oder Objekte an. Möchtest du trotzdem mit der Berechnung fortfahren?';
+    '\n\nPlease adjust containers or objects. Do you want to continue with the calculation anyway?';
 
   return window.confirm(message);
 }
 
 async function fetchPacking() {
   if (!ensureConfigValidOrNotify()) {
-    console.info('🚫 Pack-Vorgang abgebrochen: Konfigurationsprobleme.');
+    console.info('🚫 Packing operation aborted: configuration issues.');
     return;
   }
   try {
@@ -646,11 +646,11 @@ async function fetchPacking() {
       Array.isArray(packingResults.unplaced) &&
       packingResults.unplaced.length
     ) {
-      console.warn('⚠️ Nicht platzierbare Objekte:', packingResults.unplaced);
+      console.warn('⚠️ Unplaceable objects:', packingResults.unplaced);
       alert(
-        `⚠️ Warnung: ${packingResults.unplaced.length} Objekt(e) konnten nicht verpackt werden!\n\n` +
+        `⚠️ Warning: ${packingResults.unplaced.length} object(s) could not be packed!\n\n` +
           packingResults.unplaced
-            .map((u) => `Objekt ${u.id}: ${u.reason}`)
+            .map((u) => `Object ${u.id}: ${u.reason}`)
             .join('\n')
       );
     }
@@ -658,8 +658,8 @@ async function fetchPacking() {
     showContainer(0);
     updateNavigationButtons();
   } catch (error) {
-    console.error('❌ Fehler:', error);
-    alert('Server nicht erreichbar!');
+    console.error('❌ Error:', error);
+    alert('Server not reachable!');
   }
 }
 
@@ -766,11 +766,11 @@ function toggleAnimation() {
   if (isAnimating) {
     clearInterval(animationInterval);
     isAnimating = false;
-    animateBtn.textContent = '▶ Animation starten';
+    animateBtn.textContent = '▶ Start Animation';
   } else {
     if (!packingResults) return;
     isAnimating = true;
-    animateBtn.textContent = '⏸ Animation stoppen';
+    animateBtn.textContent = '⏸ Stop Animation';
     animationStep = 0;
     const container = packingResults.results[currentContainerIndex];
     const containerSize = resolveContainerDims(container);
@@ -840,12 +840,12 @@ function animate() {
   renderer.render(scene, camera);
 }
 animate();
-console.log('🚀 3D Visualizer bereit!');
+console.log('🚀 3D Visualizer ready!');
 
 // --- Live Modus (SSE) ---
 function startLivePacking() {
   if (!ensureConfigValidOrNotify()) {
-    console.info('🚫 Live-Pack-Vorgang abgebrochen: Konfigurationsprobleme.');
+    console.info('🚫 Live packing aborted: configuration issues.');
     return;
   }
   liveMode = true;
@@ -876,7 +876,7 @@ function startLivePacking() {
     body: JSON.stringify(payload),
   })
     .then(async (resp) => {
-      if (!resp.body) throw new Error('Keine Stream-Response');
+      if (!resp.body) throw new Error('No stream response');
       const reader = resp.body.getReader();
       const decoder = new TextDecoder('utf-8');
       let buffer = '';
@@ -884,13 +884,13 @@ function startLivePacking() {
         const { value, done } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
-        // SSE frames sind durch \n\n getrennt
+        // SSE frames are separated by \n\n
         let parts = buffer.split(/\n\n/);
         buffer = parts.pop() || '';
         for (const part of parts) {
           const line = part.trim();
           if (!line) continue;
-          // Erwartet: data: {json}
+          // Expected: data: {json}
           const dataLine = line.startsWith('data:')
             ? line.slice(5).trim()
             : line;
@@ -904,7 +904,7 @@ function startLivePacking() {
       }
       handleLiveEvent({ type: 'Finished' });
     })
-    .catch((e) => console.warn('POST /pack_stream Fehler:', e));
+    .catch((e) => console.warn('POST /pack_stream error:', e));
 }
 
 function handleLiveEvent(evt) {
@@ -976,18 +976,18 @@ function handleLiveEvent(evt) {
     case 'ObjectRejected': {
       liveUnplaced.push(evt);
       console.warn(
-        `⚠️ Objekt ${evt.id} konnte nicht verpackt werden (${evt.reason_text})`
+        `⚠️ Object ${evt.id} could not be packed (${evt.reason_text})`
       );
       updateNavigationButtons();
       break;
     }
     case 'Finished': {
       if (typeof evt.unplaced === 'number' && evt.unplaced > 0) {
-        console.warn(`⚠️ Gesamt unverpackt: ${evt.unplaced}`);
+        console.warn(`⚠️ Total unpacked: ${evt.unplaced}`);
         alert(
-          `⚠️ Warnung: ${evt.unplaced} Objekt(e) konnten nicht verpackt werden!\n\n` +
+          `⚠️ Warning: ${evt.unplaced} object(s) could not be packed!\n\n` +
             liveUnplaced
-              .map((u) => `Objekt ${u.id}: ${u.reason_text}`)
+              .map((u) => `Object ${u.id}: ${u.reason_text}`)
               .join('\n')
         );
       }

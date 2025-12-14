@@ -1,16 +1,20 @@
-//! Datenmodelle für die Box-Packing-Simulation.
+//! Data models for the box packing simulation.
 //!
-//! Dieses Modul definiert die grundlegenden Datenstrukturen für die 3D-Verpackungsoptimierung:
-//! - `Box3D`: Repräsentiert ein zu verpackendes Objekt mit Abmessungen und Gewicht
-//! - `PlacedBox`: Ein Objekt mit seiner Position im Container
-//! - `Container`: Der Verpackungsbehälter mit Kapazitätsgrenzen
+//! This module defines the fundamental data structures for 3D packing optimization:
+//! - `Box3D`: Represents an object to be packed with dimensions and weight
+//! - `PlacedBox`: An object with its position in the container
+//! - `Container`: The packing container with capacity limits
+//!
+//! All structures implement the traits from the `types` module for OOP compliance.
 
 use serde::{Deserialize, Serialize};
 #[allow(unused_imports)]
 use serde_json::json;
 use utoipa::ToSchema;
 
-/// Validierungsfehler für Objektdaten.
+use crate::types::{BoundingBox, Dimensional, EPSILON_GENERAL, Positioned, Vec3, Weighted};
+
+/// Validation error for object data.
 #[derive(Debug, Clone)]
 pub enum ValidationError {
     InvalidDimension(String),
@@ -22,10 +26,10 @@ pub enum ValidationError {
 impl std::fmt::Display for ValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ValidationError::InvalidDimension(msg) => write!(f, "Ungültige Dimension: {}", msg),
-            ValidationError::InvalidWeight(msg) => write!(f, "Ungültiges Gewicht: {}", msg),
+            ValidationError::InvalidDimension(msg) => write!(f, "Invalid dimension: {}", msg),
+            ValidationError::InvalidWeight(msg) => write!(f, "Invalid weight: {}", msg),
             ValidationError::InvalidConfiguration(msg) => {
-                write!(f, "Ungültige Konfiguration: {}", msg)
+                write!(f, "Invalid configuration: {}", msg)
             }
         }
     }
@@ -33,12 +37,53 @@ impl std::fmt::Display for ValidationError {
 
 impl std::error::Error for ValidationError {}
 
-/// Repräsentiert ein 3D-Objekt, das verpackt werden soll.
+/// Helper function to validate a single dimension (DRY principle).
+fn validate_dimension(value: f64, name: &str) -> Result<(), ValidationError> {
+    if value <= 0.0 || value.is_nan() || value.is_infinite() {
+        return Err(ValidationError::InvalidDimension(format!(
+            "{} must be positive, got: {}",
+            name, value
+        )));
+    }
+    Ok(())
+}
+
+/// Helper function to validate weight (DRY principle).
+fn validate_weight_value(value: f64) -> Result<(), ValidationError> {
+    if value <= 0.0 || value.is_nan() || value.is_infinite() {
+        return Err(ValidationError::InvalidWeight(format!(
+            "Weight must be positive, got: {}",
+            value
+        )));
+    }
+    Ok(())
+}
+
+/// Validates dimensions and weight together (DRY principle).
+fn validate_box_params(dims: (f64, f64, f64), weight: f64) -> Result<(), ValidationError> {
+    validate_dimension(dims.0, "Width")?;
+    validate_dimension(dims.1, "Depth")?;
+    validate_dimension(dims.2, "Height")?;
+    validate_weight_value(weight)?;
+    Ok(())
+}
+
+/// Validates container dimensions (DRY principle).
+fn validate_container_dims(dims: (f64, f64, f64)) -> Result<(), ValidationError> {
+    validate_dimension(dims.0, "Container width")?;
+    validate_dimension(dims.1, "Container depth")?;
+    validate_dimension(dims.2, "Container height")?;
+    Ok(())
+}
+
+/// Represents a 3D object to be packed.
 ///
-/// # Felder
-/// * `id` - Eindeutige Identifikationsnummer des Objekts
-/// * `dims` - Dimensionen (Breite, Tiefe, Höhe) in Einheiten
-/// * `weight` - Gewicht des Objekts in kg
+/// Implements the `Dimensional` and `Weighted` traits for OOP compliance.
+///
+/// # Fields
+/// * `id` - Unique identification number of the object
+/// * `dims` - Dimensions (width, depth, height) in units
+/// * `weight` - Weight of the object in kg
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct Box3D {
     pub id: usize,
@@ -48,71 +93,78 @@ pub struct Box3D {
 }
 
 impl Box3D {
-    /// Erstellt ein neues Box3D-Objekt mit Validierung.
+    /// Creates a new Box3D object with validation.
     ///
-    /// # Parameter
-    /// * `id` - Eindeutige ID
-    /// * `dims` - Dimensionen (Breite, Tiefe, Höhe)
-    /// * `weight` - Gewicht in kg
+    /// # Parameters
+    /// * `id` - Unique ID
+    /// * `dims` - Dimensions (width, depth, height)
+    /// * `weight` - Weight in kg
     ///
-    /// # Rückgabewert
-    /// `Ok(Box3D)` bei gültigen Werten, sonst `Err(ValidationError)`
+    /// # Returns
+    /// `Ok(Box3D)` for valid values, otherwise `Err(ValidationError)`
+    ///
+    /// # Examples
+    /// ```
+    /// use sort_it_now::model::Box3D;
+    ///
+    /// let box_ok = Box3D::new(1, (10.0, 20.0, 30.0), 5.0);
+    /// assert!(box_ok.is_ok());
+    ///
+    /// let box_invalid = Box3D::new(1, (-10.0, 20.0, 30.0), 5.0);
+    /// assert!(box_invalid.is_err());
+    /// ```
     pub fn new(id: usize, dims: (f64, f64, f64), weight: f64) -> Result<Self, ValidationError> {
-        let (w, d, h) = dims;
-
-        if w <= 0.0 || w.is_nan() || w.is_infinite() {
-            return Err(ValidationError::InvalidDimension(format!(
-                "Breite muss positiv sein, erhalten: {}",
-                w
-            )));
-        }
-        if d <= 0.0 || d.is_nan() || d.is_infinite() {
-            return Err(ValidationError::InvalidDimension(format!(
-                "Tiefe muss positiv sein, erhalten: {}",
-                d
-            )));
-        }
-        if h <= 0.0 || h.is_nan() || h.is_infinite() {
-            return Err(ValidationError::InvalidDimension(format!(
-                "Höhe muss positiv sein, erhalten: {}",
-                h
-            )));
-        }
-        if weight <= 0.0 || weight.is_nan() || weight.is_infinite() {
-            return Err(ValidationError::InvalidWeight(format!(
-                "Gewicht muss positiv sein, erhalten: {}",
-                weight
-            )));
-        }
-
+        validate_box_params(dims, weight)?;
         Ok(Self { id, dims, weight })
     }
 
-    /// Berechnet das Volumen des Objekts.
+    /// Calculates the volume of the object.
     ///
-    /// # Rückgabewert
-    /// Das Volumen als Produkt von Breite × Tiefe × Höhe
+    /// # Returns
+    /// The volume as the product of width × depth × height
     pub fn volume(&self) -> f64 {
         let (w, d, h) = self.dims;
         w * d * h
     }
 
-    /// Gibt die Grundfläche des Objekts zurück.
+    /// Returns the base area of the object.
     ///
-    /// # Rückgabewert
-    /// Die Grundfläche als Produkt von Breite × Tiefe
+    /// # Returns
+    /// The base area as the product of width × depth
     #[allow(dead_code)]
     pub fn base_area(&self) -> f64 {
         let (w, d, _) = self.dims;
         w * d
     }
+
+    /// Converts the dimensions to a Vec3.
+    #[inline]
+    pub fn dims_as_vec3(&self) -> Vec3 {
+        Vec3::from_tuple(self.dims)
+    }
 }
 
-/// Ein platziertes Objekt mit seiner Position im Container.
+/// Implementation of the Dimensional trait for Box3D.
+impl Dimensional for Box3D {
+    fn dimensions(&self) -> Vec3 {
+        self.dims_as_vec3()
+    }
+}
+
+/// Implementation of the Weighted trait for Box3D.
+impl Weighted for Box3D {
+    fn weight(&self) -> f64 {
+        self.weight
+    }
+}
+
+/// A placed object with its position in the container.
 ///
-/// # Felder
-/// * `object` - Das ursprüngliche Box3D-Objekt
-/// * `position` - Position (x, y, z) der unteren linken Ecke im Container
+/// Implements `Positioned`, `Dimensional` and `Weighted` traits for OOP compliance.
+///
+/// # Fields
+/// * `object` - The original Box3D object
+/// * `position` - Position (x, y, z) of the lower left corner in the container
 #[derive(Clone, Debug)]
 pub struct PlacedBox {
     pub object: Box3D,
@@ -120,19 +172,29 @@ pub struct PlacedBox {
 }
 
 impl PlacedBox {
-    /// Gibt die obere Z-Koordinate des platzierten Objekts zurück.
+    /// Creates a new PlacedBox object.
     ///
-    /// # Rückgabewert
-    /// Z-Position + Höhe des Objekts
+    /// # Parameters
+    /// * `object` - The Box3D object to place
+    /// * `position` - Position (x, y, z) in the container
+    #[allow(dead_code)]
+    pub fn new(object: Box3D, position: (f64, f64, f64)) -> Self {
+        Self { object, position }
+    }
+
+    /// Returns the top Z coordinate of the placed object.
+    ///
+    /// # Returns
+    /// Z position + height of the object
     #[allow(dead_code)]
     pub fn top_z(&self) -> f64 {
         self.position.2 + self.object.dims.2
     }
 
-    /// Gibt den Schwerpunkt des platzierten Objekts zurück.
+    /// Returns the center of mass of the placed object.
     ///
-    /// # Rückgabewert
-    /// Tuple mit (center_x, center_y, center_z)
+    /// # Returns
+    /// Tuple with (center_x, center_y, center_z)
     #[allow(dead_code)]
     pub fn center(&self) -> (f64, f64, f64) {
         (
@@ -141,14 +203,64 @@ impl PlacedBox {
             self.position.2 + self.object.dims.2 / 2.0,
         )
     }
+
+    /// Returns the center of mass as Vec3.
+    #[inline]
+    #[allow(dead_code)]
+    pub fn center_vec3(&self) -> Vec3 {
+        Vec3::new(
+            self.position.0 + self.object.dims.0 / 2.0,
+            self.position.1 + self.object.dims.1 / 2.0,
+            self.position.2 + self.object.dims.2 / 2.0,
+        )
+    }
+
+    /// Calculates the bounding box of the placed object.
+    ///
+    /// Useful for collision detection and overlap calculation.
+    #[inline]
+    #[allow(dead_code)]
+    pub fn bounding_box(&self) -> BoundingBox {
+        BoundingBox::from_position_and_dims(
+            Vec3::from_tuple(self.position),
+            self.object.dims_as_vec3(),
+        )
+    }
+
+    /// Converts the position to a Vec3.
+    #[inline]
+    pub fn position_vec3(&self) -> Vec3 {
+        Vec3::from_tuple(self.position)
+    }
 }
 
-/// Repräsentiert einen Verpackungsbehälter mit Kapazitätsgrenzen.
+/// Implementation of the Positioned trait for PlacedBox.
+impl Positioned for PlacedBox {
+    fn position(&self) -> Vec3 {
+        self.position_vec3()
+    }
+}
+
+/// Implementation of the Dimensional trait for PlacedBox.
+impl Dimensional for PlacedBox {
+    fn dimensions(&self) -> Vec3 {
+        self.object.dims_as_vec3()
+    }
+}
+
+/// Implementation of the Weighted trait for PlacedBox.
+impl Weighted for PlacedBox {
+    fn weight(&self) -> f64 {
+        self.object.weight
+    }
+}
+
+/// Represents a packing container with capacity limits.
 ///
-/// # Felder
-/// * `dims` - Dimensionen (Breite, Tiefe, Höhe) des Containers
-/// * `max_weight` - Maximales Gesamtgewicht in kg
-/// * `placed` - Liste der bereits platzierten Objekte
+/// # Fields
+/// * `dims` - Dimensions (width, depth, height) of the container
+/// * `max_weight` - Maximum total weight in kg
+/// * `placed` - List of already placed objects
 #[derive(Clone, Debug)]
 pub struct Container {
     pub dims: (f64, f64, f64),
@@ -159,41 +271,21 @@ pub struct Container {
 }
 
 impl Container {
-    /// Erstellt einen neuen leeren Container mit Validierung.
+    /// Creates a new empty container with validation.
     ///
-    /// # Parameter
-    /// * `dims` - Dimensionen (Breite, Tiefe, Höhe)
-    /// * `max_weight` - Maximales Gewicht
+    /// Uses the shared validation logic (DRY principle).
     ///
-    /// # Rückgabewert
-    /// `Ok(Container)` bei gültigen Werten, sonst `Err(ValidationError)`
+    /// # Parameters
+    /// * `dims` - Dimensions (width, depth, height)
+    /// * `max_weight` - Maximum weight
+    ///
+    /// # Returns
+    /// `Ok(Container)` for valid values, otherwise `Err(ValidationError)`
+    #[allow(dead_code)]
     pub fn new(dims: (f64, f64, f64), max_weight: f64) -> Result<Self, ValidationError> {
-        let (w, d, h) = dims;
-
-        if w <= 0.0 || w.is_nan() || w.is_infinite() {
-            return Err(ValidationError::InvalidDimension(format!(
-                "Container-Breite muss positiv sein, erhalten: {}",
-                w
-            )));
-        }
-        if d <= 0.0 || d.is_nan() || d.is_infinite() {
-            return Err(ValidationError::InvalidDimension(format!(
-                "Container-Tiefe muss positiv sein, erhalten: {}",
-                d
-            )));
-        }
-        if h <= 0.0 || h.is_nan() || h.is_infinite() {
-            return Err(ValidationError::InvalidDimension(format!(
-                "Container-Höhe muss positiv sein, erhalten: {}",
-                h
-            )));
-        }
-        if max_weight <= 0.0 || max_weight.is_nan() || max_weight.is_infinite() {
-            return Err(ValidationError::InvalidWeight(format!(
-                "Maximales Gewicht muss positiv sein, erhalten: {}",
-                max_weight
-            )));
-        }
+        // Use shared validation logic (DRY)
+        validate_container_dims(dims)?;
+        validate_weight_value(max_weight)?;
 
         Ok(Self {
             dims,
@@ -204,45 +296,45 @@ impl Container {
         })
     }
 
-    /// Berechnet das Gesamtgewicht aller platzierten Objekte.
+    /// Calculates the total weight of all placed objects.
     ///
-    /// # Rückgabewert
-    /// Summe der Gewichte aller Objekte
+    /// # Returns
+    /// Sum of the weights of all objects
     pub fn total_weight(&self) -> f64 {
         self.placed.iter().map(|b| b.object.weight).sum()
     }
 
-    /// Berechnet das verbleibende verfügbare Gewicht.
+    /// Calculates the remaining available weight.
     ///
-    /// # Rückgabewert
-    /// Differenz zwischen maximalem und aktuellem Gewicht
+    /// # Returns
+    /// Difference between maximum and current weight
     pub fn remaining_weight(&self) -> f64 {
         self.max_weight - self.total_weight()
     }
 
-    /// Berechnet das genutzte Volumen im Container.
+    /// Calculates the used volume in the container.
     ///
-    /// # Rückgabewert
-    /// Summe der Volumina aller platzierten Objekte
+    /// # Returns
+    /// Sum of the volumes of all placed objects
     #[allow(dead_code)]
     pub fn used_volume(&self) -> f64 {
         self.placed.iter().map(|b| b.object.volume()).sum()
     }
 
-    /// Berechnet das Gesamtvolumen des Containers.
+    /// Calculates the total volume of the container.
     ///
-    /// # Rückgabewert
-    /// Volumen des Containers
+    /// # Returns
+    /// Volume of the container
     #[allow(dead_code)]
     pub fn total_volume(&self) -> f64 {
         let (w, d, h) = self.dims;
         w * d * h
     }
 
-    /// Berechnet die Auslastung des Containers in Prozent.
+    /// Calculates the utilization of the container in percent.
     ///
-    /// # Rückgabewert
-    /// Prozentwert der Volumenbelegung (0.0 bis 100.0)
+    /// # Returns
+    /// Percentage value of volume usage (0.0 to 100.0)
     #[allow(dead_code)]
     pub fn utilization_percent(&self) -> f64 {
         let total = self.total_volume();
@@ -252,27 +344,41 @@ impl Container {
         (self.used_volume() / total) * 100.0
     }
 
-    /// Prüft, ob ein Objekt grundsätzlich in den Container passt.
+    /// Checks if an object can basically fit in the container.
     ///
-    /// Berücksichtigt Gewicht und Dimensionen mit Toleranz.
+    /// Considers weight and dimensions with tolerance.
+    /// Uses the global tolerance constant (DRY principle).
     ///
-    /// # Parameter
-    /// * `b` - Das zu prüfende Objekt
+    /// # Parameters
+    /// * `b` - The object to check
     ///
-    /// # Rückgabewert
-    /// `true` wenn das Objekt theoretisch passt, sonst `false`
+    /// # Returns
+    /// `true` if the object theoretically fits, otherwise `false`
     pub fn can_fit(&self, b: &Box3D) -> bool {
-        let tolerance = 1e-6;
-        self.remaining_weight() + tolerance >= b.weight
-            && b.dims.0 <= self.dims.0 + tolerance
-            && b.dims.1 <= self.dims.1 + tolerance
-            && b.dims.2 <= self.dims.2 + tolerance
+        self.remaining_weight() + EPSILON_GENERAL >= b.weight
+            && b.dims.0 <= self.dims.0 + EPSILON_GENERAL
+            && b.dims.1 <= self.dims.1 + EPSILON_GENERAL
+            && b.dims.2 <= self.dims.2 + EPSILON_GENERAL
     }
 
-    /// Erstellt einen neuen leeren Container mit gleichen Eigenschaften.
+    /// Converts the container dimensions to a Vec3.
+    #[inline]
+    #[allow(dead_code)]
+    pub fn dims_as_vec3(&self) -> Vec3 {
+        Vec3::from_tuple(self.dims)
+    }
+
+    /// Calculates the geometric center of the container (XY plane).
+    #[inline]
+    #[allow(dead_code)]
+    pub fn center_xy(&self) -> (f64, f64) {
+        (self.dims.0 / 2.0, self.dims.1 / 2.0)
+    }
+
+    /// Creates a new empty container with the same properties.
     ///
-    /// # Rückgabewert
-    /// Ein neuer Container mit gleichen Dimensionen und Gewichtslimit
+    /// # Returns
+    /// A new container with the same dimensions and weight limit
     #[allow(dead_code)]
     pub fn empty_like(&self) -> Self {
         Self {
@@ -284,7 +390,7 @@ impl Container {
         }
     }
 
-    /// Hinterlegt Metadaten zum Container-Typ (Builder-Pattern light).
+    /// Stores metadata for the container type (Builder pattern light).
     #[allow(dead_code)]
     pub fn with_meta(mut self, template_id: usize, label: Option<String>) -> Self {
         self.template_id = Some(template_id);
@@ -293,7 +399,7 @@ impl Container {
     }
 }
 
-/// Vorlage für einen Container-Typ.
+/// Template for a container type.
 #[derive(Clone, Debug)]
 pub struct ContainerBlueprint {
     pub id: usize,
@@ -303,15 +409,18 @@ pub struct ContainerBlueprint {
 }
 
 impl ContainerBlueprint {
-    /// Erstellt eine neue Container-Vorlage nach Validierung der Parameter.
+    /// Creates a new container template after validating the parameters.
+    ///
+    /// Uses the same validation logic as Container (DRY principle).
     pub fn new(
         id: usize,
         label: Option<String>,
         dims: (f64, f64, f64),
         max_weight: f64,
     ) -> Result<Self, ValidationError> {
-        // Validierung wird über Container::new sichergestellt.
-        let _ = Container::new(dims, max_weight)?;
+        // Validation via shared functions (DRY)
+        validate_container_dims(dims)?;
+        validate_weight_value(max_weight)?;
         Ok(Self {
             id,
             label,
@@ -320,7 +429,7 @@ impl ContainerBlueprint {
         })
     }
 
-    /// Instanziiert einen leeren Container basierend auf dieser Vorlage.
+    /// Instantiates an empty container based on this template.
     pub fn instantiate(&self) -> Container {
         Container {
             dims: self.dims,
@@ -331,18 +440,40 @@ impl ContainerBlueprint {
         }
     }
 
-    /// Prüft, ob das Objekt aufgrund von Dimensionen und Gewicht grundsätzlich passt.
+    /// Checks if the object can basically fit based on dimensions and weight.
+    ///
+    /// Uses the global tolerance constant (DRY principle).
     pub fn can_fit(&self, object: &Box3D) -> bool {
-        let tolerance = 1e-6;
-        object.weight <= self.max_weight + tolerance
-            && object.dims.0 <= self.dims.0 + tolerance
-            && object.dims.1 <= self.dims.1 + tolerance
-            && object.dims.2 <= self.dims.2 + tolerance
+        object.weight <= self.max_weight + EPSILON_GENERAL
+            && object.dims.0 <= self.dims.0 + EPSILON_GENERAL
+            && object.dims.1 <= self.dims.1 + EPSILON_GENERAL
+            && object.dims.2 <= self.dims.2 + EPSILON_GENERAL
     }
 
-    /// Liefert das Volumen der Vorlage.
+    /// Returns the volume of the template.
     pub fn volume(&self) -> f64 {
         let (w, d, h) = self.dims;
         w * d * h
+    }
+
+    /// Converts the blueprint dimensions to a Vec3.
+    #[inline]
+    #[allow(dead_code)]
+    pub fn dims_as_vec3(&self) -> Vec3 {
+        Vec3::from_tuple(self.dims)
+    }
+}
+
+/// Implementation of the Dimensional trait for Container.
+impl Dimensional for Container {
+    fn dimensions(&self) -> Vec3 {
+        Vec3::from_tuple(self.dims)
+    }
+}
+
+/// Implementation of the Dimensional trait for ContainerBlueprint.
+impl Dimensional for ContainerBlueprint {
+    fn dimensions(&self) -> Vec3 {
+        Vec3::from_tuple(self.dims)
     }
 }

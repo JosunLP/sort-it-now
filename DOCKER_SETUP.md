@@ -1,119 +1,119 @@
 # Docker Hub Deployment Setup
 
-Diese Anleitung beschreibt, wie man die automatische Docker-Veröffentlichung auf Docker Hub einrichtet.
+This guide describes how to set up automatic Docker publishing to Docker Hub.
 
-## Voraussetzungen
+## Prerequisites
 
-1. Ein Docker Hub Account (<https://hub.docker.com/>)
-2. Repository-Admin-Zugriff auf GitHub
+1. A Docker Hub account (<https://hub.docker.com/>)
+2. Repository admin access on GitHub
 
-## Schritt 1: Docker Hub Access Token erstellen
+## Step 1: Create Docker Hub Access Token
 
-1. Gehe zu <https://hub.docker.com/settings/security>
-2. Klicke auf "New Access Token"
-3. Gib einen Namen ein (z.B. "github-actions-sort-it-now")
-4. Wähle die Berechtigung "Read, Write" aus
-5. Klicke auf "Generate"
-6. **Wichtig:** Kopiere das Token sofort - es wird nur einmal angezeigt!
+1. Go to <https://hub.docker.com/settings/security>
+2. Click "New Access Token"
+3. Enter a name (e.g., "github-actions-sort-it-now")
+4. Select "Read, Write" permission
+5. Click "Generate"
+6. **Important:** Copy the token immediately - it will only be shown once!
 
-## Schritt 2: GitHub Secrets konfigurieren
+## Step 2: Configure GitHub Secrets
 
-1. Gehe zu deinem GitHub Repository
-2. Navigiere zu **Settings** → **Secrets and variables** → **Actions**
-3. Klicke auf "New repository secret"
-4. Erstelle zwei Secrets:
+1. Go to your GitHub repository
+2. Navigate to **Settings** → **Secrets and variables** → **Actions**
+3. Click "New repository secret"
+4. Create two secrets:
 
    **Secret 1:**
 
    - Name: `DOCKER_USERNAME`
-   - Value: Dein Docker Hub Benutzername
+   - Value: Your Docker Hub username
 
    **Secret 2:**
 
    - Name: `DOCKER_PASSWORD`
-   - Value: Das Access Token aus Schritt 1
+   - Value: The access token from Step 1
 
-## Schritt 3: Workflow testen
+## Step 3: Test the Workflow
 
-Der Docker-Workflow wird automatisch ausgelöst, wenn:
+The Docker workflow is automatically triggered when:
 
-- Ein neuer Tag im Format `v*` erstellt wird (z.B. `v1.1.0`)
-- Der Workflow manuell über "Actions" → "Docker Build and Push" → "Run workflow" gestartet wird
+- A new tag in the format `v*` is created (e.g., `v1.1.0`)
+- The workflow is manually started via "Actions" → "Docker Build and Push" → "Run workflow"
 
-### Manueller Test
+### Manual Test
 
-1. Gehe zu **Actions** im GitHub Repository
-2. Wähle den Workflow "Docker Build and Push"
-3. Klicke auf "Run workflow"
-4. Wähle den Branch aus
-5. Klicke auf "Run workflow"
+1. Go to **Actions** in the GitHub repository
+2. Select the workflow "Docker Build and Push"
+3. Click "Run workflow"
+4. Select the branch
+5. Click "Run workflow"
 
-## Schritt 4: Docker Image auf Docker Hub verifizieren
+## Step 4: Verify Docker Image on Docker Hub
 
-Nach erfolgreichem Workflow-Durchlauf:
+After successful workflow completion:
 
-1. Gehe zu <https://hub.docker.com/>
-2. Navigiere zu deinem Repository
-3. Das Image sollte mit den entsprechenden Tags verfügbar sein:
-   - `latest` (wird bei jedem Release mit einem `v*` Tag vergeben)
-   - Versions-Tags (z.B. `1.0.0`, `1.0`, `1`)
+1. Go to <https://hub.docker.com/>
+2. Navigate to your repository
+3. The image should be available with the corresponding tags:
+   - `latest` (assigned with each release having a `v*` tag)
+   - Version tags (e.g., `1.0.0`, `1.0`, `1`)
 
-## Docker Image verwenden
+## Using the Docker Image
 
-Nach der Veröffentlichung kann das Image folgendermaßen verwendet werden:
+After publishing, the image can be used as follows:
 
-> **Hinweis:** Ersetze `<your-dockerhub-username>` durch deinen tatsächlichen Docker Hub Benutzernamen.
+> **Note:** Replace `<your-dockerhub-username>` with your actual Docker Hub username.
 
 ```bash
-# Neueste Version
+# Latest version
 docker pull <your-dockerhub-username>/sort-it-now:latest
 
-# Spezifische Version
+# Specific version
 docker pull <your-dockerhub-username>/sort-it-now:1.0.0
 
-# Ausführen
+# Run
 docker run -p 8080:8080 -e SORT_IT_NOW_SKIP_UPDATE_CHECK=1 <your-dockerhub-username>/sort-it-now:latest
 ```
 
 ## Troubleshooting
 
-### Workflow schlägt mit "Authentication failed" fehl
+### Workflow fails with "Authentication failed"
 
-- Überprüfe, ob die Secrets korrekt gesetzt sind
-- Stelle sicher, dass das Docker Hub Access Token nicht abgelaufen ist
-- Verifiziere den Docker Hub Benutzernamen (Groß-/Kleinschreibung beachten)
+- Check if the secrets are set correctly
+- Ensure the Docker Hub access token has not expired
+- Verify the Docker Hub username (case-sensitive)
 
-### Workflow schlägt mit "denied: requested access to the resource is denied" fehl
+### Workflow fails with "denied: requested access to the resource is denied"
 
-- Das Access Token benötigt "Write"-Berechtigung
-- Stelle sicher, dass das Repository auf Docker Hub existiert (wird automatisch beim ersten Push erstellt)
+- The access token needs "Write" permission
+- Ensure the repository exists on Docker Hub (automatically created on first push)
 
-### Image wird nicht mit allen Plattformen gebaut
+### Image is not built for all platforms
 
-- Docker Buildx wird automatisch eingerichtet
-- Bei Problemen kann man in `.github/workflows/docker.yml` die Zeile `platforms: linux/amd64,linux/arm64` auf nur `linux/amd64` reduzieren
+- Docker Buildx is automatically set up
+- If there are issues, you can reduce the line `platforms: linux/amd64,linux/arm64` in `.github/workflows/docker.yml` to just `linux/amd64`
 
-## Anpassungen
+## Customizations
 
-### Docker Hub Repository-Name ändern
+### Change Docker Hub Repository Name
 
-In `.github/workflows/docker.yml` die Zeile:
+In `.github/workflows/docker.yml`, change the line:
 
 ```yaml
 images: ${{ secrets.DOCKER_USERNAME }}/sort-it-now
 ```
 
-ändern zu:
+to:
 
 ```yaml
-images: ${{ secrets.DOCKER_USERNAME }}/dein-repository-name
+images: ${{ secrets.DOCKER_USERNAME }}/your-repository-name
 ```
 
-### Andere Registry verwenden (z.B. GitHub Container Registry)
+### Use Different Registry (e.g., GitHub Container Registry)
 
-Für GitHub Container Registry (ghcr.io):
+For GitHub Container Registry (ghcr.io):
 
-1. Ersetze `docker/login-action` mit GitHub Token:
+1. Replace `docker/login-action` with GitHub Token:
 
 ```yaml
 - name: Log in to GitHub Container Registry
@@ -124,7 +124,7 @@ Für GitHub Container Registry (ghcr.io):
     password: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-2. Ändere das Image in `metadata-action`:
+2. Change the image in `metadata-action`:
 
 ```yaml
 images: ghcr.io/${{ github.repository_owner }}/sort-it-now

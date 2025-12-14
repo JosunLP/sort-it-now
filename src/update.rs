@@ -64,7 +64,7 @@ impl TempDirCleanup {
     fn cleanup(&mut self) {
         if let Some(dir) = self.dir.take() {
             if let Err(err) = dir.close() {
-                eprintln!("⚠️ Konnte temporäres Verzeichnis nicht entfernen: {}", err);
+                eprintln!("⚠️ Could not remove temporary directory: {}", err);
             }
         }
     }
@@ -92,13 +92,13 @@ impl Drop for TempDirCleanup {
 /// background.
 pub fn check_for_updates_background(update_config: UpdateConfig) -> Option<JoinHandle<()>> {
     if std::env::var("SORT_IT_NOW_SKIP_UPDATE_CHECK").is_ok() {
-        println!("ℹ️ Update-Check deaktiviert (SORT_IT_NOW_SKIP_UPDATE_CHECK gesetzt).");
+        println!("ℹ️ Update check disabled (SORT_IT_NOW_SKIP_UPDATE_CHECK set).");
         return None;
     }
 
     Some(tokio::spawn(async move {
         if let Err(err) = check_for_updates(&update_config).await {
-            eprintln!("⚠️ Update-Check fehlgeschlagen: {err}");
+            eprintln!("⚠️ Update check failed: {err}");
         }
     }))
 }
@@ -126,17 +126,17 @@ async fn check_for_updates(
         let headers = response.headers().clone();
         if is_rate_limit_response(&headers) {
             let mut message =
-                String::from("⏱️ GitHub-Rate-Limit erreicht. Der Update-Check wurde übersprungen.");
+                String::from("⏱️ GitHub rate limit reached. Update check skipped.");
             if let Some(wait) = rate_limit_reset_duration(&headers) {
                 message.push_str(&format!(
-                    " Bitte versuche es in {} erneut.",
+                    " Please try again in {}.",
                     format_wait(wait)
                 ));
             }
             println!("{message}");
             if token.is_none() {
                 println!(
-                    "💡 Tipp: Setze SORT_IT_NOW_GITHUB_TOKEN oder GITHUB_TOKEN mit einem persönlichen Zugriffstoken, um das Limit zu erhöhen."
+                    "💡 Tip: Set SORT_IT_NOW_GITHUB_TOKEN or GITHUB_TOKEN with a personal access token to increase the limit."
                 );
             }
             return Ok(());
@@ -144,21 +144,21 @@ async fn check_for_updates(
 
         let body = match response.text().await {
             Ok(body) => body,
-            Err(_) => String::from("unbekannte Antwort"),
+            Err(_) => String::from("unknown response"),
         };
-        return Err(format!("GitHub-API antwortete mit 403 Forbidden: {body}").into());
+        return Err(format!("GitHub API responded with 403 Forbidden: {body}").into());
     }
 
     if status == StatusCode::UNAUTHORIZED {
         eprintln!(
-            "⚠️ GitHub hat das verwendete Token zurückgewiesen (401 Unauthorized). Prüfe SORT_IT_NOW_GITHUB_TOKEN oder GITHUB_TOKEN."
+            "⚠️ GitHub rejected the token (401 Unauthorized). Check SORT_IT_NOW_GITHUB_TOKEN or GITHUB_TOKEN."
         );
         return Ok(());
     }
 
     if status == StatusCode::NOT_FOUND {
         println!(
-            "ℹ️ Konnte kein Release für {}/{} finden (404 Not Found).",
+            "ℹ️ Could not find a release for {}/{} (404 Not Found).",
             config.owner(),
             config.repo()
         );
@@ -177,26 +177,26 @@ async fn check_for_updates(
     ) {
         (Ok(current_ver), Ok(latest_ver)) if latest_ver > current_ver => {
             println!(
-                "✨ Eine neue Version ({}) ist verfügbar! Lade sie unter {} herunter.",
+                "✨ A new version ({}) is available! Download it at {}.",
                 release.tag_name, release.html_url
             );
             println!(
-                "🛠️ Automatisches Update auf {} wird vorbereitet – Release-Artefakt wird heruntergeladen und installiert.",
+                "🛠️ Preparing automatic update to {} – downloading and installing release artifact.",
                 release.tag_name
             );
             if let Err(err) = download_and_install_update(&client, &release, token.as_deref()).await
             {
-                eprintln!("⚠️ Automatisches Update fehlgeschlagen: {err}");
+                eprintln!("⚠️ Automatic update failed: {err}");
             } else {
-                println!("✅ Update auf {} wurde installiert.", release.tag_name);
+                println!("✅ Update to {} installed.", release.tag_name);
             }
         }
         (Ok(_), Ok(_)) => {
-            println!("✅ Du verwendest die aktuelle Version (v{current}).");
+            println!("✅ You are using the latest version (v{current}).");
         }
         _ => {
             println!(
-                "ℹ️ Konnte Versionsvergleich nicht durchführen. Aktuell: v{current}, Server: {}",
+                "ℹ️ Could not perform version comparison. Current: v{current}, Server: {}",
                 release.tag_name
             );
         }
@@ -213,7 +213,7 @@ async fn download_and_install_update(
     #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
     {
         let _ = auth_token;
-        println!("ℹ️ Automatische Updates werden auf diesem Betriebssystem nicht unterstützt.");
+        println!("ℹ️ Automatic updates are not supported on this operating system.");
         return Ok(());
     }
 
@@ -226,23 +226,23 @@ async fn download_and_install_update(
             .find(|asset| asset_names.iter().any(|candidate| candidate == &asset.name))
             .ok_or_else(|| {
                 let candidates = asset_names.join(", ");
-                format!("Konnte kein Release-Asset finden. Erwartete Namen: {candidates}")
+                format!("Could not find release asset. Expected names: {candidates}")
             })?;
 
         let checksum_asset =
             find_checksum_asset(&release.assets, &asset.name).ok_or_else(|| {
                 let expected = checksum_asset_names(&asset.name).join(", ");
                 format!(
-                    "Konnte keine Prüfsummen-Datei finden. Erwartete Namen: {}",
+                    "Could not find checksum file. Expected names: {}",
                     expected
                 )
             })?;
 
-        println!("⬇️ Lade Update-Paket {} herunter...", asset.name);
-        println!("🔒 Lade Prüfsumme {} ...", checksum_asset.name);
+        println!("⬇️ Downloading update package {}...", asset.name);
+        println!("🔒 Downloading checksum {}...", checksum_asset.name);
 
         let expected_checksum = fetch_checksum(client, checksum_asset, auth_token).await?;
-        println!("🔐 Verifiziere SHA-256-Checksumme für {}.", asset.name);
+        println!("🔐 Verifying SHA-256 checksum for {}.", asset.name);
 
         let mut request = client.get(&asset.browser_download_url);
         if let Some(token) = auth_token {
@@ -258,7 +258,7 @@ async fn download_and_install_update(
             if content_length > limit_bytes {
                 temp_dir.cleanup();
                 return Err(format!(
-                    "Release-Asset {} überschreitet das Download-Limit von {} MB",
+                    "Release asset {} exceeds download limit of {} MB",
                     asset.name,
                     limit_bytes / (1024 * 1024)
                 )
@@ -280,7 +280,7 @@ async fn download_and_install_update(
                     let _ = fs::remove_file(&archive_path).await;
                     temp_dir.cleanup();
                     return Err(format!(
-                        "Release-Asset {} überschreitet das Download-Limit von {} MB",
+                        "Release asset {} exceeds download limit of {} MB",
                         asset.name,
                         limit_bytes / (1024 * 1024)
                     )
@@ -298,7 +298,7 @@ async fn download_and_install_update(
             let _ = fs::remove_file(&archive_path).await;
             temp_dir.cleanup();
             return Err(format!(
-                "Checksumme stimmt nicht überein (erwartet {}, erhalten {}). Update abgebrochen.",
+                "Checksum mismatch (expected {}, got {}). Update aborted.",
                 expected_checksum, computed_checksum
             )
             .into());
@@ -429,7 +429,7 @@ async fn fetch_checksum(
             std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 format!(
-                    "Konnte gültige SHA-256-Checksumme in {} nicht finden.",
+                    "Could not find valid SHA-256 checksum in {}.",
                     checksum_asset.name
                 ),
             )
@@ -454,7 +454,7 @@ fn max_download_size_bytes() -> Option<u64> {
                 }
             } else {
                 eprintln!(
-                    "⚠️ Konnte SORT_IT_NOW_MAX_DOWNLOAD_MB ('{}') nicht parsen. Verwende Standardlimit {} MB.",
+                    "⚠️ Could not parse SORT_IT_NOW_MAX_DOWNLOAD_MB ('{}'). Using default limit {} MB.",
                     trimmed, DEFAULT_LIMIT_MB
                 );
                 Some(DEFAULT_LIMIT_MB * 1024 * 1024)
@@ -463,7 +463,7 @@ fn max_download_size_bytes() -> Option<u64> {
         Err(std::env::VarError::NotPresent) => Some(DEFAULT_LIMIT_MB * 1024 * 1024),
         Err(err) => {
             eprintln!(
-                "⚠️ Zugriff auf SORT_IT_NOW_MAX_DOWNLOAD_MB fehlgeschlagen: {err}. Verwende Standardlimit {} MB.",
+                "⚠️ Failed to access SORT_IT_NOW_MAX_DOWNLOAD_MB: {err}. Using default limit {} MB.",
                 DEFAULT_LIMIT_MB
             );
             Some(DEFAULT_LIMIT_MB * 1024 * 1024)
@@ -486,7 +486,7 @@ fn http_timeout() -> Duration {
                 }
             } else {
                 eprintln!(
-                    "⚠️ Konnte SORT_IT_NOW_HTTP_TIMEOUT_SECS ('{}') nicht parsen. Verwende Standardtimeout {}s.",
+                    "⚠️ Could not parse SORT_IT_NOW_HTTP_TIMEOUT_SECS ('{}'). Using default timeout {}s.",
                     trimmed, DEFAULT_TIMEOUT_SECS
                 );
                 Duration::from_secs(DEFAULT_TIMEOUT_SECS)
@@ -495,7 +495,7 @@ fn http_timeout() -> Duration {
         Err(std::env::VarError::NotPresent) => Duration::from_secs(DEFAULT_TIMEOUT_SECS),
         Err(err) => {
             eprintln!(
-                "⚠️ Zugriff auf SORT_IT_NOW_HTTP_TIMEOUT_SECS fehlgeschlagen: {err}. Verwende Standardtimeout {}s.",
+                "⚠️ Failed to access SORT_IT_NOW_HTTP_TIMEOUT_SECS: {err}. Using default timeout {}s.",
                 DEFAULT_TIMEOUT_SECS
             );
             Duration::from_secs(DEFAULT_TIMEOUT_SECS)
@@ -513,7 +513,7 @@ fn env_token(name: &str) -> Option<String> {
             let trimmed = value.trim();
             if trimmed.is_empty() {
                 eprintln!(
-                    "⚠️ Umgebungsvariable {} ist gesetzt, enthält aber keinen Wert.",
+                    "⚠️ Environment variable {} is set but contains no value.",
                     name
                 );
                 None
@@ -524,7 +524,7 @@ fn env_token(name: &str) -> Option<String> {
         Err(std::env::VarError::NotPresent) => None,
         Err(err) => {
             eprintln!(
-                "⚠️ Zugriff auf {} fehlgeschlagen: {}. Ignoriere Wert.",
+                "⚠️ Failed to access {}: {}. Ignoring value.",
                 name, err
             );
             None
@@ -600,7 +600,7 @@ async fn install_on_unix(
     let bundle_dir = bundle_directory(&extract_root, tag_name);
     let binary_path = bundle_dir.join("sort_it_now");
     if !binary_path.exists() {
-        return Err("Binärdatei sort_it_now wurde im entpackten Paket nicht gefunden".into());
+        return Err("Binary sort_it_now was not found in the extracted package".into());
     }
 
     let current_exe = std::env::current_exe()?;
@@ -635,11 +635,11 @@ async fn install_on_unix(
             let _ = fs::remove_file(&next_launch_path).await;
             fs::rename(&staged_path, &next_launch_path).await?;
             println!(
-                "⚠️ Die laufende Anwendung konnte nicht ersetzt werden: {}.",
+                "⚠️ Could not replace the running application: {}.",
                 err
             );
             println!(
-                "💡 Die aktualisierte Version wurde als {} abgelegt. Benenne sie nach einem Neustart in sort_it_now um.",
+                "💡 The updated version was saved as {}. Rename it to sort_it_now after a restart.",
                 next_launch_path.display()
             );
             return Ok(());
@@ -650,7 +650,7 @@ async fn install_on_unix(
     }
 
     println!(
-        "✅ Update nach {} installiert (Installationsziel: {}).",
+        "✅ Update to {} installed (installation target: {}).",
         tag_name,
         install_dir.display()
     );
@@ -703,13 +703,13 @@ async fn install_on_windows(
     let bundle_dir = bundle_directory(&extract_root, tag_name);
     let binary_path = bundle_dir.join("sort_it_now.exe");
     if !binary_path.exists() {
-        return Err("Binärdatei sort_it_now.exe wurde im entpackten Paket nicht gefunden".into());
+        return Err("Binary sort_it_now.exe was not found in the extracted package".into());
     }
 
     let current_exe = std::env::current_exe()?;
     let install_dir = current_exe
         .parent()
-        .ok_or("Konnte Installationsverzeichnis nicht bestimmen")?
+        .ok_or("Could not determine installation directory")?
         .to_path_buf();
     let target_path = install_dir.join("sort_it_now.exe");
 
@@ -718,21 +718,21 @@ async fn install_on_windows(
             copy_readme_if_present(&bundle_dir, &install_dir).await;
             match ensure_windows_path(&install_dir) {
                 Ok(true) => println!(
-                    "ℹ️ Das Installationsverzeichnis wurde zum Benutzer-PATH hinzugefügt. Du musst eventuell ein neues Terminal öffnen."
+                    "ℹ️ The installation directory was added to user PATH. You may need to open a new terminal."
                 ),
                 Ok(false) => {}
                 Err(err) => eprintln!(
-                    "⚠️ Konnte PATH nicht aktualisieren: {}. Füge {} manuell hinzu.",
+                    "⚠️ Could not update PATH: {}. Add {} manually.",
                     err,
                     install_dir.display()
                 ),
             }
             println!(
-                "✅ Update nach {} installiert (Installationsziel: {}).",
+                "✅ Update to {} installed (installation target: {}).",
                 tag_name,
                 install_dir.display()
             );
-            println!("ℹ️ Starte den Dienst mit: sort_it_now.exe");
+            println!("ℹ️ Start the service with: sort_it_now.exe");
             Ok(())
         }
         Err(err) => {
@@ -748,11 +748,11 @@ async fn install_on_windows(
                 }
                 fs::copy(&binary_path, &staged_path).await?;
                 println!(
-                    "⚠️ Die laufende Anwendung konnte nicht ersetzt werden: {}.",
+                    "⚠️ Could not replace the running application: {}.",
                     err
                 );
                 println!(
-                    "💡 Die aktualisierte Version wurde als {} abgelegt. Benenne sie nach einem Neustart in sort_it_now.exe um.",
+                    "💡 The updated version was saved as {}. Rename it to sort_it_now.exe after a restart.",
                     staged_path.display()
                 );
                 Ok(())
@@ -772,7 +772,7 @@ async fn copy_readme_if_present(bundle_dir: &Path, install_dir: &Path) {
 
     let readme_dst = install_dir.join("README.md");
     if let Err(err) = fs::copy(&readme_src, &readme_dst).await {
-        eprintln!("⚠️ Konnte README.md nicht aktualisieren: {}", err);
+        eprintln!("⚠️ Could not update README.md: {}", err);
     }
 }
 
