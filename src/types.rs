@@ -484,11 +484,11 @@ mod tests {
 
     #[test]
     fn test_validation_dimension() {
-        assert!(validation::validate_dimension(10.0, "Breite").is_ok());
-        assert!(validation::validate_dimension(0.0, "Breite").is_err());
-        assert!(validation::validate_dimension(-1.0, "Breite").is_err());
-        assert!(validation::validate_dimension(f64::NAN, "Breite").is_err());
-        assert!(validation::validate_dimension(f64::INFINITY, "Breite").is_err());
+        assert!(validation::validate_dimension(10.0, "Width").is_ok());
+        assert!(validation::validate_dimension(0.0, "Width").is_err());
+        assert!(validation::validate_dimension(-1.0, "Width").is_err());
+        assert!(validation::validate_dimension(f64::NAN, "Width").is_err());
+        assert!(validation::validate_dimension(f64::INFINITY, "Width").is_err());
     }
 
     #[test]

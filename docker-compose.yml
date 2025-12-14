@@ -1,13 +1,13 @@
-# Docker Compose für sort-it-now
-# Verwendung:
-#   docker compose up -d        # Container starten
-#   docker compose logs -f      # Logs verfolgen
-#   docker compose down         # Container stoppen
+# Docker Compose for sort-it-now
+# Usage:
+#   docker compose up -d        # Start container
+#   docker compose logs -f      # Follow logs
+#   docker compose down         # Stop container
 
 services:
   sort-it-now:
     image: josunlp/sort-it-now:latest
-    # Alternativ: Lokales Build
+    # Alternative: Local build
     # build:
     #   context: .
     #   dockerfile: Dockerfile
@@ -18,7 +18,7 @@ services:
       - SORT_IT_NOW_API_HOST=0.0.0.0
       - SORT_IT_NOW_API_PORT=8080
       - SORT_IT_NOW_SKIP_UPDATE_CHECK=1
-      # Optionale Packing-Konfiguration:
+      # Optional packing configuration:
       # - SORT_IT_NOW_PACKING_GRID_STEP=5.0
       # - SORT_IT_NOW_PACKING_SUPPORT_RATIO=0.6
       # - SORT_IT_NOW_PACKING_ALLOW_ROTATIONS=true
@@ -29,12 +29,12 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-    # Ressourcen-Limits (optional, empfohlen für Produktion)
+    # Resource limits (optional, recommended for production)
     deploy:
       resources:
         limits:
-          cpus: '2'
+          cpus: "2"
           memory: 512M
         reservations:
-          cpus: '0.5'
+          cpus: "0.5"
           memory: 128M
