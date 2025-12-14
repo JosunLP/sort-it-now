@@ -125,13 +125,9 @@ async fn check_for_updates(
     if status == StatusCode::FORBIDDEN {
         let headers = response.headers().clone();
         if is_rate_limit_response(&headers) {
-            let mut message =
-                String::from("⏱️ GitHub rate limit reached. Update check skipped.");
+            let mut message = String::from("⏱️ GitHub rate limit reached. Update check skipped.");
             if let Some(wait) = rate_limit_reset_duration(&headers) {
-                message.push_str(&format!(
-                    " Please try again in {}.",
-                    format_wait(wait)
-                ));
+                message.push_str(&format!(" Please try again in {}.", format_wait(wait)));
             }
             println!("{message}");
             if token.is_none() {
@@ -232,10 +228,7 @@ async fn download_and_install_update(
         let checksum_asset =
             find_checksum_asset(&release.assets, &asset.name).ok_or_else(|| {
                 let expected = checksum_asset_names(&asset.name).join(", ");
-                format!(
-                    "Could not find checksum file. Expected names: {}",
-                    expected
-                )
+                format!("Could not find checksum file. Expected names: {}", expected)
             })?;
 
         println!("⬇️ Downloading update package {}...", asset.name);
@@ -523,10 +516,7 @@ fn env_token(name: &str) -> Option<String> {
         }
         Err(std::env::VarError::NotPresent) => None,
         Err(err) => {
-            eprintln!(
-                "⚠️ Failed to access {}: {}. Ignoring value.",
-                name, err
-            );
+            eprintln!("⚠️ Failed to access {}: {}. Ignoring value.", name, err);
             None
         }
     }
@@ -634,10 +624,7 @@ async fn install_on_unix(
         if err.kind() == std::io::ErrorKind::PermissionDenied {
             let _ = fs::remove_file(&next_launch_path).await;
             fs::rename(&staged_path, &next_launch_path).await?;
-            println!(
-                "⚠️ Could not replace the running application: {}.",
-                err
-            );
+            println!("⚠️ Could not replace the running application: {}.", err);
             println!(
                 "💡 The updated version was saved as {}. Rename it to sort_it_now after a restart.",
                 next_launch_path.display()
@@ -747,10 +734,7 @@ async fn install_on_windows(
                     }
                 }
                 fs::copy(&binary_path, &staged_path).await?;
-                println!(
-                    "⚠️ Could not replace the running application: {}.",
-                    err
-                );
+                println!("⚠️ Could not replace the running application: {}.", err);
                 println!(
                     "💡 The updated version was saved as {}. Rename it to sort_it_now.exe after a restart.",
                     staged_path.display()

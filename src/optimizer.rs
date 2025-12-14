@@ -431,10 +431,7 @@ impl std::fmt::Display for UnplacedReason {
                 )
             }
             UnplacedReason::NoStablePosition => {
-                write!(
-                    f,
-                    "No stable position found within the container"
-                )
+                write!(f, "No stable position found within the container")
             }
         }
     }
