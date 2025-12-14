@@ -17,13 +17,13 @@ class I18n {
   detectLanguage() {
     // Check localStorage first
     const stored = localStorage.getItem('language');
-    if (stored && ['en', 'de'].includes(stored)) {
+    if (stored && this.availableLanguages.includes(stored)) {
       return stored;
     }
 
     // Check browser language
     const browserLang = navigator.language.split('-')[0]; // e.g., 'de-DE' -> 'de'
-    if (['en', 'de'].includes(browserLang)) {
+    if (this.availableLanguages.includes(browserLang)) {
       return browserLang;
     }
 

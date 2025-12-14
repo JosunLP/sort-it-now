@@ -41,6 +41,7 @@
   },
   "config": {
     "title": "⚙️ Packing Configuration",
+    "containerType": "Container Type",
     "containerTypes": "🧱 Container Types",
     "addContainerType": "➕ Add Container Type",
     "testObjects": "📦 Test Objects",

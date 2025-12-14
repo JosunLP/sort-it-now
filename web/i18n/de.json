@@ -41,6 +41,7 @@
   },
   "config": {
     "title": "⚙️ Packkonfiguration",
+    "containerType": "Containertyp",
     "containerTypes": "🧱 Containertypen",
     "addContainerType": "➕ Containertyp hinzufügen",
     "testObjects": "📦 Testobjekte",

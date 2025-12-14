@@ -326,8 +326,8 @@ function renderContainerTypesList() {
       (entry, index) => `
     <div class="object-item">
       <div class="object-header">
-        <h4>Container Type ${index + 1}</h4>
-        <button class="btn-remove" onclick="removeContainerType(${index})">🗑️ ${i18n.t('config.remove')}</button>
+        <h4>${i18n.t('config.containerType')} ${index + 1}</h4>
+        <button class="btn-remove" onclick="removeContainerType(${index})">${i18n.t('config.remove')}</button>
       </div>
       <div class="form-group">
         <label>${i18n.t('config.containerName')}</label>
