@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Sort-it-now 3D Visualisierung</title>
+    <title>Sort-it-now 3D Visualization</title>
     <style>
       * {
         margin: 0;
@@ -332,35 +332,35 @@
 
     <div id="ui-overlay">
       <div id="stats">
-        <h3>Statistiken</h3>
-        <p><strong>Objekte:</strong> 0 / 0</p>
-        <p><strong>Gewicht:</strong> 0.00 kg</p>
-        <p><strong>Auslastung:</strong> 0%</p>
-        <p><strong>Schwerpunkt:</strong> (0, 0, 0)</p>
+        <h3>Statistics</h3>
+        <p><strong>Objects:</strong> 0 / 0</p>
+        <p><strong>Weight:</strong> 0.00 kg</p>
+        <p><strong>Utilization:</strong> 0%</p>
+        <p><strong>Center of Mass:</strong> (0, 0, 0)</p>
       </div>
 
       <div id="controls">
-        <button id="configBtn" class="config-btn">⚙️ Konfiguration</button>
+        <button id="configBtn" class="config-btn">⚙️ Configuration</button>
         <div class="separator"></div>
         <button id="runPacking" class="primary">🚀 Pack (Batch)</button>
         <button id="runPackingLive" class="animate">📡 Pack (Live)</button>
         <div class="separator"></div>
-        <button id="prevContainer" disabled>◄ Vorheriger</button>
-        <button id="nextContainer" disabled>Nächster ►</button>
+        <button id="prevContainer" disabled>◄ Previous</button>
+        <button id="nextContainer" disabled>Next ►</button>
         <div class="separator"></div>
         <button id="animateBtn" class="animate" disabled>
-          ▶ Animation starten
+          ▶ Start Animation
         </button>
       </div>
 
       <div id="help">
-        <h4>🎮 Steuerung</h4>
+        <h4>🎮 Controls</h4>
         <ul>
-          <li>Linke Maustaste: Kamera drehen</li>
-          <li>Rechte Maustaste: Kamera verschieben</li>
-          <li>Mausrad: Zoom</li>
-          <li>Navigation: Container wechseln</li>
-          <li>Animation: Schrittweise Platzierung</li>
+          <li>Left mouse button: Rotate camera</li>
+          <li>Right mouse button: Pan camera</li>
+          <li>Mouse wheel: Zoom</li>
+          <li>Navigation: Switch containers</li>
+          <li>Animation: Step-by-step placement</li>
         </ul>
       </div>
     </div>
@@ -369,39 +369,39 @@
     <div id="configModal" class="modal">
       <div class="modal-content">
         <span class="close">&times;</span>
-        <h2>⚙️ Verpackungs-Konfiguration</h2>
+        <h2>⚙️ Packing Configuration</h2>
 
-        <h3>🧱 Verpackungstypen</h3>
+        <h3>🧱 Container Types</h3>
         <div id="containerTypesList"></div>
 
         <button class="btn-add" id="addContainerTypeBtn">
-          ➕ Verpackungstyp hinzufügen
+          ➕ Add Container Type
         </button>
 
         <hr />
 
-        <h3>📦 Test-Objekte</h3>
+        <h3>📦 Test Objects</h3>
         <div id="objectsList"></div>
 
-        <button class="btn-add" id="addObjectBtn">➕ Objekt hinzufügen</button>
+        <button class="btn-add" id="addObjectBtn">➕ Add Object</button>
 
         <hr />
 
-        <h3>🧠 Optionen</h3>
+        <h3>🧠 Options</h3>
         <div class="form-group">
           <label class="checkbox-label">
             <input type="checkbox" id="allowRotationsCheckbox" />
-            <span>Rotationen der Objekte erlauben</span>
+            <span>Allow object rotations</span>
           </label>
           <p class="form-hint">
-            Nutzt alle 90°-Drehungen der Objekte, um zusätzliche
-            Packmöglichkeiten zu finden.
+            Uses all 90° rotations of objects to find additional packing
+            possibilities.
           </p>
         </div>
 
         <hr />
 
-        <button id="saveConfigBtn">💾 Konfiguration speichern</button>
+        <button id="saveConfigBtn">💾 Save Configuration</button>
       </div>
     </div>
 

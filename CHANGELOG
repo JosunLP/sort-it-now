@@ -1,5 +1,38 @@
 # Changelog
 
+## [1.2.0] - 2025-12-14
+
+### Added
+
+- New `types.rs` module with reusable core types following OOP and DRY principles:
+  - `Vec3` - 3D vector type with operator overloading (+, -, \*)
+  - `BoundingBox` - Axis-Aligned Bounding Box for collision detection
+  - `Dimensional`, `Positioned`, `Weighted` traits for polymorphism
+  - `CenterOfMassCalculator` for weighted center of mass calculations
+  - `EPSILON_GENERAL` and `EPSILON_HEIGHT` constants
+  - Validation functions (`validate_dimension`, `validate_weight`, `validate_dimensions_3d`)
+
+### Changed
+
+- Refactored `model.rs` to implement traits from `types.rs`:
+  - `Box3D` implements `Dimensional`, `Weighted`
+  - `PlacedBox` implements `Positioned`, `Dimensional`, `Weighted`
+  - `Container` implements `Dimensional`
+- Improved `geometry.rs` to use `BoundingBox` for calculations
+- Translated entire project from German to English:
+  - All Rust source files (8 files)
+  - Documentation (README.md, CONCEPT.md, DOCKER_SETUP.md)
+  - Copilot instructions (.github/copilot-instructions.md)
+  - Installation scripts (install-unix.sh, install-windows.ps1)
+  - Web frontend (index.html, script.js)
+- Updated copilot-instructions.md with comprehensive documentation
+
+### Improved
+
+- Code organization following OOP and DRY principles
+- Test coverage increased to 42 tests across all modules
+- Better separation of concerns with trait-based design
+
 ## [1.1.2] - 2025-12-12
 
 - Minor fix in the windows installation script.

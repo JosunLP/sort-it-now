@@ -1,97 +1,97 @@
 # Sort-it-now - 3D Box Packing Optimizer
 
-Eine intelligente 3D-Verpackungsoptimierung mit interaktiver Visualisierung.
+An intelligent 3D packing optimization service with interactive visualization.
 
 ## 🎯 Features
 
 ### Backend (Rust)
 
-- **Heuristischer Packing-Algorithmus** mit Berücksichtigung von:
-  - Gewichtsgrenzen und -verteilung
-  - Stabilität und Unterstützung (60% Mindestauflage)
-  - Schwerpunkt-Balance
-  - Schichtung (schwere Objekte unten)
-- **Automatische Multi-Container-Verwaltung**
-- **Optionale Objektrotationen** (per Request-Flag oder Umgebungsvariable aktivierbar)
-- **Umfassende Unit-Tests**
-- **REST-API** mit JSON-Kommunikation
-- **OpenAPI & Swagger UI** mit live Dokumentation unter `/docs`
-- **OOP-Prinzipien** mit DRY-Architektur
-- **Vollständig dokumentierter Code** (Rust-Docstrings)
+- **Heuristic packing algorithm** considering:
+  - Weight limits and distribution
+  - Stability and support (60% minimum support ratio)
+  - Center of mass balance
+  - Layering (heavy objects at the bottom)
+- **Automatic multi-container management**
+- **Optional object rotations** (enabled via request flag or environment variable)
+- **Comprehensive unit tests**
+- **REST API** with JSON communication
+- **OpenAPI & Swagger UI** with live documentation at `/docs`
+- **OOP principles** with DRY architecture
+- **Fully documented code** (Rust docstrings)
 
 ### Frontend (JavaScript/Three.js)
 
-- **Interaktive 3D-Visualisierung**
-- **OrbitControls** für Kamera-Steuerung
-- **Container-Navigation** (Vor/Zurück-Buttons)
-- **Schritt-für-Schritt-Animation** des Packprozesses
-- **Live-Statistiken**:
-  - Objekt-Anzahl
-  - Gesamtgewicht
-  - Volumen-Auslastung
-  - Schwerpunkt-Position
-- **Konfigurationsmodal** mit Schalter für Objektrotationen
-- **Responsive Design**
+- **Interactive 3D visualization**
+- **OrbitControls** for camera control
+- **Container navigation** (Previous/Next buttons)
+- **Step-by-step animation** of the packing process
+- **Live statistics**:
+  - Object count
+  - Total weight
+  - Volume utilization
+  - Center of mass position
+- **Configuration modal** with object rotation toggle
+- **Responsive design**
 
-## 🚀 Installation & Start
+## 🚀 Installation & Startup
 
-### Voraussetzungen
+### Prerequisites
 
 - Rust (1.70+)
 - Cargo
-- Moderner Webbrowser
+- Modern web browser
 
-### Backend starten
+### Start the backend
 
 ```bash
 cargo run
 ```
 
-Der Server läuft auf `http://localhost:8080`
+The server runs on `http://localhost:8080`
 
-> 💡 **Konfigurationshinweis:** Kopiere bei Bedarf die Datei `.env.example` nach `.env`, um den API-Port, Host oder Update-Parameter anzupassen. Nicht gesetzte Werte fallen automatisch auf ihre Standardwerte zurück.
+> 💡 **Configuration note:** Copy `.env.example` to `.env` if needed to customize the API port, host, or update parameters. Unset values automatically fall back to their defaults.
 
-### Frontend öffnen
+### Open the frontend
 
-Der Web-Client wird automatisch vom Rust-Backend ausgeliefert. Rufe nach dem Start einfach `http://localhost:8080/` im Browser auf.
+The web client is automatically served by the Rust backend. After startup, simply open `http://localhost:8080/` in your browser.
 
-Im Browser:
+In the browser:
 
-- Button "🚀 Pack (Batch)" führt eine einmalige Optimierung aus und zeigt das Ergebnis.
-- Button "📡 Pack (Live)" startet den Live-Stream der Optimierungsschritte via SSE und rendert sie fortlaufend.
+- Button "🚀 Pack (Batch)" performs a one-time optimization and displays the result.
+- Button "📡 Pack (Live)" starts the live stream of optimization steps via SSE and renders them continuously.
 
-## 📦 Fertige Builds & Release-Pipeline
+## 📦 Pre-built Releases & Release Pipeline
 
-Für Releases existiert ein GitHub-Actions-Workflow (`.github/workflows/release.yml`), der bei Tags im Format `v*` (oder manuell via _workflow_dispatch_) Plattform-Pakete erzeugt:
+A GitHub Actions workflow (`.github/workflows/release.yml`) exists for releases that generates platform packages when tags in the format `v*` are created (or manually via _workflow_dispatch_):
 
 - **Linux (x86_64)**: `sort-it-now-<version>-linux-x86_64.tar.gz`
 - **macOS (ARM64/Apple Silicon)**: `sort-it-now-<version>-macos-arm64.tar.gz`
 - **macOS (x86_64/Intel)**: `sort-it-now-<version>-macos-x86_64.tar.gz`
 - **Windows (x86_64)**: `sort-it-now-<version>-windows-x86_64.zip`
 
-Jedes Paket enthält die vorkompilierte Binärdatei, die aktuelle `README.md` sowie ein Installationsskript.
-Die Artefakte werden sowohl als Workflow-Artefakte hochgeladen als auch automatisch dem GitHub-Release der entsprechenden Tag-Version hinzugefügt.
+Each package contains the pre-compiled binary, the current `README.md`, and an installation script.
+The artifacts are uploaded both as workflow artifacts and automatically added to the GitHub release for the corresponding tag version.
 
-### Installationsskripte
+### Installation Scripts
 
-- Linux/macOS: Im entpackten Ordner `./install.sh` ausführen (optional mit `sudo`), um `sort_it_now` nach `/usr/local/bin` zu kopieren.
-- Windows: `install.ps1` (PowerShell) ausführen. Standardmäßig wird nach `%ProgramFiles%\sort-it-now` installiert und der Pfad der Benutzer-Umgebungsvariable hinzugefügt.
+- Linux/macOS: Run `./install.sh` in the extracted folder (optionally with `sudo`) to copy `sort_it_now` to `/usr/local/bin`.
+- Windows: Run `install.ps1` (PowerShell). By default, it installs to `%ProgramFiles%\sort-it-now` and adds the path to the user environment variable.
 
 ### Docker
 
-Für jeden Release wird automatisch ein Docker-Image auf [Docker Hub](https://hub.docker.com/) veröffentlicht. Die Images werden für mehrere Architekturen (linux/amd64, linux/arm64) bereitgestellt.
+For each release, a Docker image is automatically published to [Docker Hub](https://hub.docker.com/). Images are provided for multiple architectures (linux/amd64, linux/arm64).
 
-> 📖 **Setup-Anleitung:** Siehe [DOCKER_SETUP.md](DOCKER_SETUP.md) für eine detaillierte Anleitung zur Einrichtung der Docker Hub Deployment-Pipeline.
+> 📖 **Setup guide:** See [DOCKER_SETUP.md](DOCKER_SETUP.md) for a detailed guide on setting up the Docker Hub deployment pipeline.
 
-**Docker Image ausführen:**
+**Run Docker image:**
 
-> **Hinweis:** Ersetze `<username>` durch `josunlp` (oder den entsprechenden Docker Hub Benutzernamen des Projekt-Maintainers).
+> **Note:** Replace `<username>` with `josunlp` (or the corresponding Docker Hub username of the project maintainer).
 
 ```bash
 docker run -p 8080:8080 -e SORT_IT_NOW_SKIP_UPDATE_CHECK=1 <username>/sort-it-now:latest
 ```
 
-**Mit Umgebungsvariablen:**
+**With environment variables:**
 
 ```bash
 docker run -p 8080:8080 \
@@ -101,34 +101,34 @@ docker run -p 8080:8080 \
   <username>/sort-it-now:latest
 ```
 
-**Eigenes Image bauen:**
+**Build your own image:**
 
 ```bash
 docker build -t sort-it-now .
 docker run -p 8080:8080 -e SORT_IT_NOW_SKIP_UPDATE_CHECK=1 sort-it-now
 ```
 
-Der Server ist dann unter `http://localhost:8080` verfügbar.
+The server is then available at `http://localhost:8080`.
 
-## 🔔 Automatische Updates beim Start
+## 🔔 Automatic Updates on Startup
 
-Beim Start prüft der Dienst im Hintergrund die neuesten GitHub-Releases (`JosunLP/sort-it-now`). Wird eine neuere Version gefunden, lädt der Updater das passende Release-Paket herunter und führt das Installationsskript für die aktuelle Plattform aus. Dadurch wird das Update – soweit möglich – automatisch eingespielt. Auf Windows wird bei gesperrter `sort_it_now.exe` ersatzweise eine `sort_it_now.new.exe` abgelegt.
+On startup, the service checks for the latest GitHub releases (`JosunLP/sort-it-now`) in the background. If a newer version is found, the updater downloads the appropriate release package and runs the installation script for the current platform. This automatically applies the update where possible. On Windows, if `sort_it_now.exe` is locked, a `sort_it_now.new.exe` is placed instead.
 
-- Der Check kann über die Umgebungsvariable `SORT_IT_NOW_SKIP_UPDATE_CHECK=1` deaktiviert werden (z. B. für Offline-Installationen oder CI).
-- GitHub limitiert nicht authentifizierte API-Aufrufe auf 60 pro Stunde. Wird das Limit erreicht, wird der Check übersprungen und eine Info ausgegeben. Setze optional `SORT_IT_NOW_GITHUB_TOKEN` (oder `GITHUB_TOKEN`) auf ein Personal Access Token, um höhere Limits zu erhalten; der Updater nutzt das Token ebenfalls beim Download der Release-Artefakte.
-- Um unerwartet große Downloads zu vermeiden, begrenzt der Updater Release-Artefakte standardmäßig auf 200 MB. Passe das Limit über `SORT_IT_NOW_MAX_DOWNLOAD_MB` an (Wert `0` deaktiviert die Begrenzung).
-- Repo/Owner sowie Timeout lassen sich über `SORT_IT_NOW_GITHUB_OWNER`, `SORT_IT_NOW_GITHUB_REPO` und `SORT_IT_NOW_HTTP_TIMEOUT_SECS` konfigurieren – Standardwerte greifen automatisch, falls keine `.env` vorhanden ist.
+- The check can be disabled via the environment variable `SORT_IT_NOW_SKIP_UPDATE_CHECK=1` (e.g., for offline installations or CI).
+- GitHub limits unauthenticated API calls to 60 per hour. If the limit is reached, the check is skipped and info is displayed. Optionally set `SORT_IT_NOW_GITHUB_TOKEN` (or `GITHUB_TOKEN`) to a Personal Access Token to get higher limits; the updater also uses the token when downloading release artifacts.
+- To avoid unexpectedly large downloads, the updater limits release artifacts to 200 MB by default. Adjust the limit via `SORT_IT_NOW_MAX_DOWNLOAD_MB` (value `0` disables the limit).
+- Repo/owner and timeout can be configured via `SORT_IT_NOW_GITHUB_OWNER`, `SORT_IT_NOW_GITHUB_REPO`, and `SORT_IT_NOW_HTTP_TIMEOUT_SECS` – defaults apply automatically if no `.env` is present.
 
-## 📊 API-Endpunkte
+## 📊 API Endpoints
 
 ### OpenAPI & Swagger UI
 
-- `GET /docs` liefert eine interaktive Swagger UI mit Subresource-Integrity-geschützten Assets.
-- `GET /docs/openapi.json` stellt das OpenAPI-Schema (v3) bereit und kann z. B. für Code-Generatoren genutzt werden.
+- `GET /docs` delivers an interactive Swagger UI with Subresource Integrity-protected assets.
+- `GET /docs/openapi.json` provides the OpenAPI schema (v3) and can be used for code generators.
 
 ### POST /pack
 
-Verpackt Objekte in Container.
+Packs objects into containers.
 
 **Request:**
 
@@ -136,7 +136,7 @@ Verpackt Objekte in Container.
 {
   "containers": [
     { "name": "Standard", "dims": [100.0, 100.0, 70.0], "max_weight": 500.0 },
-    { "name": "Kompakt", "dims": [60.0, 80.0, 50.0], "max_weight": 320.0 }
+    { "name": "Compact", "dims": [60.0, 80.0, 50.0], "max_weight": 320.0 }
   ],
   "objects": [
     { "id": 1, "dims": [30.0, 30.0, 10.0], "weight": 50.0 },
@@ -146,7 +146,7 @@ Verpackt Objekte in Container.
 }
 ```
 
-Das optionale Feld `allow_rotations` aktiviert pro Anfrage die 90°-Rotationen. Wird es weggelassen, greift die Standardeinstellung aus der Umgebungsvariable `SORT_IT_NOW_PACKING_ALLOW_ROTATIONS` (default: false).
+The optional field `allow_rotations` enables 90° rotations per request. If omitted, the default setting from the environment variable `SORT_IT_NOW_PACKING_ALLOW_ROTATIONS` (default: false) applies.
 
 **Response:**
 
@@ -175,21 +175,21 @@ Das optionale Feld `allow_rotations` aktiviert pro Anfrage die 90°-Rotationen. 
 
 ### POST /pack_stream (SSE)
 
-Streamt Fortschritts-Events in Echtzeit als `text/event-stream`. Jeder Event ist ein JSON-Objekt mit `type`-Feld:
+Streams progress events in real-time as `text/event-stream`. Each event is a JSON object with a `type` field:
 
 - `ContainerStarted` { id, dims, max_weight, label, template_id }
 - `ObjectPlaced` { container_id, id, pos, weight, dims, total_weight }
 - `Finished`
 
-Hinweis: Im Frontend kannst du den Live-Modus mit dem Button "📡 Pack (Live)" starten.
+Note: In the frontend, you can start live mode with the "📡 Pack (Live)" button.
 
-## 🧪 Tests ausführen
+## 🧪 Running Tests
 
 ```bash
 cargo test
 ```
 
-Alle 5 Tests sollten erfolgreich sein:
+All tests should pass successfully:
 
 - ✅ heavy_boxes_stay_below_lighter
 - ✅ single_box_snaps_to_corner
@@ -197,157 +197,157 @@ Alle 5 Tests sollten erfolgreich sein:
 - ✅ reject_heavier_on_light_support
 - ✅ sample_pack_respects_weight_order
 
-## 🏗️ Architektur
+## 🏗️ Architecture
 
-### Rust Module
+### Rust Modules
 
 #### `main.rs`
 
-- Einstiegspunkt der Anwendung
-- Startet den Tokio-Runtime und API-Server
+- Application entry point
+- Starts the Tokio runtime and API server
 
 #### `model.rs`
 
-- **`Box3D`**: Repräsentiert ein 3D-Objekt mit ID, Dimensionen und Gewicht
-- **`PlacedBox`**: Objekt mit Position im Container
-- **`Container`**: Verpackungsbehälter mit Kapazitätsgrenzen
-- Methoden: `volume()`, `base_area()`, `total_weight()`, `remaining_weight()`, `utilization_percent()`
+- **`Box3D`**: Represents a 3D object with ID, dimensions, and weight
+- **`PlacedBox`**: Object with position in the container
+- **`Container`**: Packaging container with capacity limits
+- Methods: `volume()`, `base_area()`, `total_weight()`, `remaining_weight()`, `utilization_percent()`
 
 #### `geometry.rs`
 
-- **`intersects()`**: AABB-Kollisionserkennung zwischen zwei Objekten
-- **`overlap_1d()`**: Berechnet 1D-Überlappung
-- **`overlap_area_xy()`**: Berechnet XY-Überlappungsfläche
-- **`point_inside()`**: Punkt-in-Box-Test
+- **`intersects()`**: AABB collision detection between two objects
+- **`overlap_1d()`**: Calculates 1D overlap
+- **`overlap_area_xy()`**: Calculates XY overlap area
+- **`point_inside()`**: Point-in-box test
 
 #### `optimizer.rs`
 
-- **`PackingConfig`**: Konfigurierbare Parameter (Raster, Support-Ratio, Toleranzen)
-- **`pack_objects()`**: Hauptalgorithmus zur Verpackung
-- **`pack_objects_with_config()`**: Version mit anpassbaren Parametern
-- **`find_stable_position()`**: Findet stabile Position für ein Objekt
-- **`supports_weight_correctly()`**: Prüft Gewichts-Hierarchie
-- **`has_sufficient_support()`**: Prüft Mindestauflage
-- **`calculate_balance_after()`**: Berechnet Schwerpunkt-Abweichung
+- **`PackingConfig`**: Configurable parameters (grid, support ratio, tolerances)
+- **`pack_objects()`**: Main packing algorithm
+- **`pack_objects_with_config()`**: Version with customizable parameters
+- **`find_stable_position()`**: Finds stable position for an object
+- **`supports_weight_correctly()`**: Checks weight hierarchy
+- **`has_sufficient_support()`**: Checks minimum support ratio
+- **`calculate_balance_after()`**: Calculates center of mass deviation
 
 #### `api.rs`
 
-- **REST-API** mit Axum-Framework
-- **CORS-Support** für Frontend-Kommunikation
-- JSON-Serialisierung/Deserialisierung
+- **REST API** with Axum framework
+- **CORS support** for frontend communication
+- JSON serialization/deserialization
 
-### JavaScript Module
+### JavaScript Modules
 
 #### `script.js`
 
-- Three.js Szenen-Setup
-- OrbitControls für Kamera
-- Funktionen:
-  - `clearScene()`: Räumt Szene auf
-  - `drawContainerFrame()`: Zeichnet Container-Wireframe
-  - `drawBox()`: Rendert einzelnes Objekt
-  - `visualizeContainer()`: Zeigt kompletten Container
-  - `animateContainer()`: Schritt-für-Schritt-Animation
-  - `updateStats()`: Aktualisiert Statistik-Panel
-  - `fetchPacking()`: API-Kommunikation
+- Three.js scene setup
+- OrbitControls for camera
+- Functions:
+  - `clearScene()`: Clears scene
+  - `drawContainerFrame()`: Draws container wireframe
+  - `drawBox()`: Renders individual object
+  - `visualizeContainer()`: Shows complete container
+  - `animateContainer()`: Step-by-step animation
+  - `updateStats()`: Updates statistics panel
+  - `fetchPacking()`: API communication
 
-## 🎨 Optimierungen
+## 🎨 Optimizations
 
-### DRY-Prinzip
+### DRY Principle
 
-- **`PackingConfig`-Struktur** statt verteilter Konstanten
-- Wiederverwendbare Funktionen für Geometrie-Berechnungen
-- Zentralisierte Fehlerbehandlung
+- **`PackingConfig` structure** instead of scattered constants
+- Reusable functions for geometry calculations
+- Centralized error handling
 
-### OOP-Prinzipien
+### OOP Principles
 
-- Klare Trennung von Datenmodellen und Logik
-- Kapselung in Module
-- Trait-Implementation für gemeinsames Verhalten
+- Clear separation of data models and logic
+- Encapsulation in modules
+- Trait implementation for common behavior
 
-### Code-Dokumentation
+### Code Documentation
 
-- Rust-Docstrings für alle öffentlichen Funktionen
-- JSDoc-Kommentare im Frontend
-- Inline-Kommentare für komplexe Algorithmen
+- Rust docstrings for all public functions
+- JSDoc comments in frontend
+- Inline comments for complex algorithms
 
-## 🔧 Konfiguration
+## 🔧 Configuration
 
-### Backend-Konfiguration (.env)
+### Backend Configuration (.env)
 
-Die Anwendung lädt beim Start optional eine `.env`-Datei (mittels [`dotenvy`](https://crates.io/crates/dotenvy)). Nicht gesetzte Variablen behalten ihre Standardwerte, sodass der Dienst auch ohne `.env` wie gewohnt läuft. Relevante Variablen:
+The application optionally loads a `.env` file on startup (using [`dotenvy`](https://crates.io/crates/dotenvy)). Unset variables retain their defaults, so the service runs normally even without `.env`. Relevant variables:
 
-| Variable                                    | Standard      | Beschreibung                                                                                                                                     |
-| ------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `SORT_IT_NOW_API_HOST`                      | `0.0.0.0`     | IP-Adresse, an die der HTTP-Server gebunden wird. Setze z. B. `127.0.0.1` für lokalen Zugriff.                                                   |
-| `SORT_IT_NOW_API_PORT`                      | `8080`        | Port des API-Servers. Werte `0` werden verworfen.                                                                                                |
-| `SORT_IT_NOW_GITHUB_OWNER`                  | `JosunLP`     | GitHub-Owner/Organisation, deren Releases für Updates abgefragt werden.                                                                          |
-| `SORT_IT_NOW_GITHUB_REPO`                   | `sort-it-now` | Repository-Name für den Updater.                                                                                                                 |
-| `SORT_IT_NOW_HTTP_TIMEOUT_SECS`             | `30`          | Timeout in Sekunden für GitHub-HTTP-Anfragen des Updaters.                                                                                       |
-| `SORT_IT_NOW_MAX_DOWNLOAD_MB`               | `200`         | Maximale Größe eines Release-Assets (0 = unbegrenzt).                                                                                            |
-| `SORT_IT_NOW_GITHUB_TOKEN` / `GITHUB_TOKEN` | –             | Optionales PAT für höhere GitHub-Rate-Limits und private Releases.                                                                               |
-| `SORT_IT_NOW_SKIP_UPDATE_CHECK`             | –             | Wenn gesetzt (beliebiger Wert), wird der automatische Update-Check deaktiviert.                                                                  |
-| `SORT_IT_NOW_PACKING_GRID_STEP`             | `5.0`         | ⚠️ Schrittweite des Positionsrasters; kleinere Werte liefern feinere Platzierung, verlangsamen aber und können zu instabilen Anordnungen führen. |
-| `SORT_IT_NOW_PACKING_SUPPORT_RATIO`         | `0.6`         | ⚠️ Mindestauflage für stabile Stapel; niedrigere Werte erhöhen Kipp-Risiko.                                                                      |
-| `SORT_IT_NOW_PACKING_HEIGHT_EPSILON`        | `1e-3`        | ⚠️ Toleranz für Höhenvergleiche; Werte zu groß oder klein beeinflussen Stabilitätschecks.                                                        |
-| `SORT_IT_NOW_PACKING_GENERAL_EPSILON`       | `1e-6`        | ⚠️ Allgemeine numerische Toleranz; extreme Werte können zu falschen Kollisionsergebnissen führen.                                                |
-| `SORT_IT_NOW_PACKING_BALANCE_LIMIT_RATIO`   | `0.45`        | ⚠️ Grenzwert für Schwerpunktabweichung; höhere Werte erlauben stärkere Schiefstellungen.                                                         |
-| `SORT_IT_NOW_PACKING_ALLOW_ROTATIONS`       | `false`       | Aktiviert alle 90°-Rotationen der Objekte. Kann auch pro Request über `allow_rotations` gesetzt werden.                                          |
+| Variable                                    | Default       | Description                                                                                                        |
+| ------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `SORT_IT_NOW_API_HOST`                      | `0.0.0.0`     | IP address the HTTP server binds to. Set e.g. `127.0.0.1` for local access.                                        |
+| `SORT_IT_NOW_API_PORT`                      | `8080`        | API server port. Values of `0` are rejected.                                                                       |
+| `SORT_IT_NOW_GITHUB_OWNER`                  | `JosunLP`     | GitHub owner/organization whose releases are queried for updates.                                                  |
+| `SORT_IT_NOW_GITHUB_REPO`                   | `sort-it-now` | Repository name for the updater.                                                                                   |
+| `SORT_IT_NOW_HTTP_TIMEOUT_SECS`             | `30`          | Timeout in seconds for GitHub HTTP requests by the updater.                                                        |
+| `SORT_IT_NOW_MAX_DOWNLOAD_MB`               | `200`         | Maximum size of a release asset (0 = unlimited).                                                                   |
+| `SORT_IT_NOW_GITHUB_TOKEN` / `GITHUB_TOKEN` | –             | Optional PAT for higher GitHub rate limits and private releases.                                                   |
+| `SORT_IT_NOW_SKIP_UPDATE_CHECK`             | –             | If set (any value), disables automatic update check.                                                               |
+| `SORT_IT_NOW_PACKING_GRID_STEP`             | `5.0`         | ⚠️ Position grid step size; smaller values give finer placement but slow down and may cause unstable arrangements. |
+| `SORT_IT_NOW_PACKING_SUPPORT_RATIO`         | `0.6`         | ⚠️ Minimum support ratio for stable stacking; lower values increase tipping risk.                                  |
+| `SORT_IT_NOW_PACKING_HEIGHT_EPSILON`        | `1e-3`        | ⚠️ Tolerance for height comparisons; values too large or small affect stability checks.                            |
+| `SORT_IT_NOW_PACKING_GENERAL_EPSILON`       | `1e-6`        | ⚠️ General numerical tolerance; extreme values may cause incorrect collision results.                              |
+| `SORT_IT_NOW_PACKING_BALANCE_LIMIT_RATIO`   | `0.45`        | ⚠️ Center of mass deviation limit; higher values allow more tilting.                                               |
+| `SORT_IT_NOW_PACKING_ALLOW_ROTATIONS`       | `false`       | Enables all 90° object rotations. Can also be set per request via `allow_rotations`.                               |
 
-Eine beispielhafte Datei findest du in `.env.example`.
+An example file can be found in `.env.example`.
 
-### Packing-Parameter (optimizer.rs)
+### Packing Parameters (optimizer.rs)
 
 ```rust
 PackingConfig {
-    grid_step: 5.0,              // Positions-Raster in Einheiten
-    support_ratio: 0.6,          // 60% Mindestauflage
-    height_epsilon: 1e-3,        // Höhen-Toleranz
-    general_epsilon: 1e-6,       // Allgemeine Toleranz
-    balance_limit_ratio: 0.45,   // Max. Schwerpunkt-Abweichung
-    allow_item_rotation: false,  // Objektrotationen aktivieren (per Default deaktiviert)
+    grid_step: 5.0,              // Position grid in units
+    support_ratio: 0.6,          // 60% minimum support
+    height_epsilon: 1e-3,        // Height tolerance
+    general_epsilon: 1e-6,       // General tolerance
+    balance_limit_ratio: 0.45,   // Max center of mass deviation
+    allow_item_rotation: false,  // Enable object rotations (disabled by default)
 }
 ```
 
-### Frontend-Konfiguration (script.js)
+### Frontend Configuration (script.js)
 
 ```javascript
-const CONTAINER_SIZE = [100, 100, 70];  // Container-Dimensionen
-const COLOR_PALETTE = [...];            // Farben für Objekte
+const CONTAINER_SIZE = [100, 100, 70];  // Container dimensions
+const COLOR_PALETTE = [...];            // Object colors
 ```
 
 ## 📈 Performance
 
-- **Durchsatz**: ~100 Objekte/Sekunde
-- **Speicher**: O(n) für n Objekte
-- **Komplexität**: O(n × p × z) wobei:
-  - n = Anzahl Objekte
-  - p = Raster-Positionen
-  - z = Z-Ebenen
+- **Throughput**: ~100 objects/second
+- **Memory**: O(n) for n objects
+- **Complexity**: O(n × p × z) where:
+  - n = number of objects
+  - p = grid positions
+  - z = Z-levels
 
-## 🐛 Bekannte Einschränkungen
+## 🐛 Known Limitations
 
-1. **Rotation**: Nur 90°-Rotationen; komplexe Freiform-Rotationen sind nicht abgedeckt
-2. **Dynamische Stabilität**: Keine physikalische Simulation
-3. **Optimales Packing**: Heuristik, kein garantiertes Optimum
-4. **Browser-Support**: Benötigt WebGL-Unterstützung
+1. **Rotation**: Only 90° rotations; complex freeform rotations are not covered
+2. **Dynamic stability**: No physical simulation
+3. **Optimal packing**: Heuristic, no guaranteed optimum
+4. **Browser support**: Requires WebGL support
 
-## 📝 Lizenz
+## 📝 License
 
-Projektspezifisch - Siehe Lizenz-Datei.
+Project-specific - See license file.
 
-## 🤝 Beitragen
+## 🤝 Contributing
 
-1. Fork das Repository
-2. Erstelle einen Feature-Branch
-3. Commit deine Änderungen
-4. Push zum Branch
-5. Öffne einen Pull Request
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Open a pull request
 
-## 📧 Kontakt
+## 📧 Contact
 
-Bei Fragen oder Problemen öffne bitte ein Issue.
+For questions or issues, please open an issue.
 
 ---
 
-Entwickelt mit ❤️ in Rust & Three.js
+Developed with ❤️ in Rust & Three.js

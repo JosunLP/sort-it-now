@@ -1,6 +1,6 @@
 [package]
 name = "sort_it_now"
-version = "1.1.2"
+version = "1.2.0"
 edition = "2024"
 license = "LicenseRef-NCSL-1.0"
 
@@ -26,3 +26,8 @@ utoipa = { version = "5.4", features = ["axum_extras"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

@@ -1,35 +1,35 @@
-# Box Packing Konzept
+# Box Packing Concept
 
-## Parameter
+## Parameters
 
-Quader sollen möglichst effizient in einem Quader verpackt werden.
+Cuboids should be packed as efficiently as possible into a cuboid container.
 
-## Relevante Werte
+## Relevant Values
 
-Maximalgewicht Verpackung.
-Gewicht Einzelobjekte.
-Abmessung (3d) Verpackung.
-Abmessung (3d) Einzelobjekte.
-Mehrere Verpackungstypen mit individuellen Dimensionen und Gewichtslimits.
+Maximum container weight.
+Individual object weights.
+Container dimensions (3D).
+Individual object dimensions (3D).
+Multiple container types with individual dimensions and weight limits.
 
-## Ziel
+## Goal
 
-Algorithmische Lösung.
-Bei zu geringem Volumen oder Grundfläche der Verpackung sollen die Objekte entsprechend in mehreren Verpackungen der angegebenen Größe möglichst effizient verpackt werden.
+Algorithmic solution.
+If container volume or base area is insufficient, objects should be packed efficiently across multiple containers of the specified sizes.
 
-Entsprechend muss dann auch der Algorithmus mehrfach ausgeführt werden, bis alle Objekte verpackt sind.
-Zudem kann der Algorithmus unterschiedliche Verpackungstypen kombinieren, um den Bedarf bestmöglich abzudecken.
+Accordingly, the algorithm must be executed multiple times until all objects are packed.
+Additionally, the algorithm can combine different container types to best meet requirements.
 
-Schwere Objekte müssen immer unter leichteren Objekten sein, das Gewicht muss ebenfalls gleichmäßig auf der Grundfläche verteilt werden
+Heavy objects must always be below lighter objects, and weight must be evenly distributed across the base area.
 
-Große objekte nach möglichkeit nach unten. Die grundfläche soll möglichst gleichmäßig mit gewicht belastet sein und möglichst gleichmäßig mit objekten gefüllt sein. Es dürfen keine Objekte überhängen, so dass sie herunterfallen könnten.
+Large objects should preferably be placed at the bottom. The base area should be loaded as evenly as possible with weight and filled as uniformly as possible with objects. Objects must not overhang in a way that would cause them to fall.
 
-Am ende sollen die Objekte möglichst raumfüllend und kompackt gepackt sein.
+In the end, objects should be packed as space-filling and compact as possible.
 
-Objekte können nicht gedreht werden.
+Objects cannot be rotated.
 
-## Tech Basis
+## Tech Stack
 
-Rust Konsolen App mit andauernder Laufzeit und ansprechbaren Schnittstellen
+Rust console application with persistent runtime and accessible interfaces
 
-3D-Geometrische Heuristik in Kombination mit Gewichtsverteilung und Schichtung
+3D geometric heuristic combined with weight distribution and layering
