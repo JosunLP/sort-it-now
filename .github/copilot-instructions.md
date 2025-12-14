@@ -10,6 +10,7 @@
 src/
 ├── main.rs        # Tokio runtime & server start, loads .env via dotenvy
 ├── config.rs      # Environment variables → AppConfig/ApiConfig/OptimizerConfig/UpdateConfig
+├── types.rs       # Core types: Vec3, BoundingBox, Traits (Dimensional, Positioned, Weighted)
 ├── model.rs       # Data structures: Box3D, PlacedBox, Container, ContainerBlueprint
 ├── geometry.rs    # AABB collision (intersects), overlap (overlap_1d), point_inside
 ├── optimizer.rs   # Packing algorithm with PackingConfig (1700+ lines, incl. tests)
@@ -26,12 +27,170 @@ web/
 # Start server (port 8080)
 cargo run
 
-# Run tests
+# Run tests (42 tests across all modules)
 cargo test
 
 # Formatting & linting (CI check - must pass before PR!)
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets
+```
+
+---
+
+## Core Types (`types.rs`)
+
+The `types.rs` module provides reusable types and trait abstractions following OOP and DRY principles.
+
+### Vec3 - 3D Vector Type
+
+```rust
+/// Represents a 3D vector or point in space.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Vec3 {
+    pub x: f64,  // Width
+    pub y: f64,  // Depth
+    pub z: f64,  // Height
+}
+
+// Operator overloading for intuitive math
+let center = position + dimensions * 0.5;
+
+// Key methods
+vec.volume()           // x * y * z
+vec.base_area()        // x * y
+vec.distance_to(other) // 3D Euclidean distance
+vec.distance_2d(other) // XY plane distance
+vec.fits_within(container, tolerance)
+vec.is_valid_dimension()
+```
+
+### BoundingBox - AABB Collision
+
+```rust
+/// Axis-Aligned Bounding Box for efficient collision detection.
+pub struct BoundingBox {
+    pub min: Vec3,  // Lower corner
+    pub max: Vec3,  // Upper corner
+}
+
+// Key methods
+BoundingBox::from_position_and_dims(position, dims)
+bbox.intersects(other)       // SAT collision test
+bbox.overlap_area_xy(other)  // XY overlap for support
+bbox.contains_point(point)   // Point-in-box test
+bbox.center()                // Center point
+bbox.top_z()                 // Maximum Z value
+```
+
+### Trait Abstractions (OOP Compliance)
+
+```rust
+/// Objects with 3D dimensions
+pub trait Dimensional {
+    fn dimensions(&self) -> Vec3;
+    fn volume(&self) -> f64 { self.dimensions().volume() }
+    fn base_area(&self) -> f64 { self.dimensions().base_area() }
+    fn fits_in(&self, container_dims: &Vec3, tolerance: f64) -> bool;
+}
+
+/// Objects with a position in 3D space
+pub trait Positioned {
+    fn position(&self) -> Vec3;
+}
+
+/// Objects with weight
+pub trait Weighted {
+    fn weight(&self) -> f64;
+}
+```
+
+### CenterOfMassCalculator
+
+```rust
+/// Accumulator for weighted center of mass calculation
+let mut calc = CenterOfMassCalculator::new();
+calc.add_point(x, y, weight);
+let (cx, cy) = calc.compute().unwrap();
+let offset = calc.distance_to((ref_x, ref_y));
+```
+
+### Epsilon Constants
+
+```rust
+pub const EPSILON_GENERAL: f64 = 1e-6;  // Dimension/weight comparisons
+pub const EPSILON_HEIGHT: f64 = 1e-3;   // Height matching for stacking
+```
+
+---
+
+## Data Model (`model.rs`)
+
+All structures implement traits from `types.rs` for OOP compliance.
+
+### Box3D
+
+```rust
+pub struct Box3D {
+    pub id: u32,
+    pub width: f64,
+    pub depth: f64,
+    pub height: f64,
+    pub weight: f64,
+}
+
+// Implements: Dimensional, Weighted
+Box3D::new(id, (w, d, h), weight)?  // Returns Result<Box3D, ValidationError>
+```
+
+### PlacedBox
+
+```rust
+pub struct PlacedBox {
+    pub id: u32,
+    pub x: f64, pub y: f64, pub z: f64,  // Position
+    pub width: f64, pub depth: f64, pub height: f64,
+    pub weight: f64,
+}
+
+// Implements: Positioned, Dimensional, Weighted
+PlacedBox::from_box3d(box3d, x, y, z)
+placed.bounding_box()  // Returns BoundingBox
+placed.center_xy()     // (center_x, center_y)
+placed.top_z()         // z + height
+```
+
+### Container
+
+```rust
+pub struct Container {
+    pub id: u32,
+    pub dims: (f64, f64, f64),
+    pub max_weight: f64,
+    pub total_weight: f64,
+    pub placed: Vec<PlacedBox>,
+    pub label: Option<String>,
+    pub template_id: Option<u32>,
+}
+
+// Implements: Dimensional
+Container::new(id, dims, max_weight)
+container.remaining_weight_capacity()
+container.volume_utilization()
+```
+
+### ContainerBlueprint
+
+```rust
+pub struct ContainerBlueprint {
+    pub id: u32,
+    pub name: Option<String>,
+    pub dims: (f64, f64, f64),
+    pub max_weight: f64,
+}
+
+ContainerBlueprint::new(id, name, dims, max_weight)?
+blueprint.create_container(container_id)
+blueprint.fits_box(box3d, epsilon)
 ```
 
 ---
@@ -133,6 +292,16 @@ Box3D::new(id, (w, d, h), weight)?  // Error on w <= 0, NaN, Inf
 
 // ContainerBlueprint checks analogously
 ContainerBlueprint::new(id, name, dims, max_weight)?
+```
+
+### Validation Functions in `types.rs`
+
+```rust
+use crate::types::validation::{validate_dimension, validate_weight, validate_dimensions_3d};
+
+validate_dimension(value, "Width")?;
+validate_weight(value)?;
+validate_dimensions_3d((w, d, h))?;
 ```
 
 ### API Validation in `api.rs`
@@ -273,21 +442,68 @@ if is_rate_limit_response(&headers) {
 
 ### Rust-specific
 
+- **Trait-Based Design**: Use `Dimensional`, `Positioned`, `Weighted` traits for polymorphism
+- **DRY Principle**: Use types from `types.rs` (Vec3, BoundingBox, CenterOfMassCalculator)
 - **Docstrings**: Document all public functions/structs in English
 - **Validation**: Always `Result<T, ValidationError>` for constructors
 - **Builder Pattern**: `PackingConfig::builder()` for configuration
-- **Epsilon Constants**: Consistently use `1e-6` (general) / `1e-3` (height)
+- **Epsilon Constants**: Use `EPSILON_GENERAL` (1e-6) and `EPSILON_HEIGHT` (1e-3) from `types.rs`
 - **Platform Compilation**: `#[cfg(target_os = "...")]` for OS-specific code
+
+### Code Organization
+
+- `types.rs` - Core types and traits (foundation layer)
+- `model.rs` - Domain objects implementing traits
+- `geometry.rs` - Spatial algorithms using BoundingBox
+- `optimizer.rs` - Business logic (packing algorithm)
+- `api.rs` - HTTP interface
+- `config.rs` - Configuration management
+- `update.rs` - Self-update mechanism
 
 ### Tests
 
 - Tests in `#[cfg(test)]` modules at the end of each file
-- Main tests in `optimizer.rs` (15+ tests):
-  - `heavy_boxes_stay_below_lighter` - Weight hierarchy
-  - `single_box_snaps_to_corner` - Positioning
-  - `creates_additional_containers_when_weight_exceeded` - Multi-container
-  - `reject_heavier_on_light_support` - Stability rules
-- Helper function `assert_heavy_below()` checks weight sorting across all layers
+- **42 tests** across all modules:
+  - `types.rs`: Vec3 operations, BoundingBox, validation, CenterOfMassCalculator
+  - `geometry.rs`: Intersection, overlap, distance calculations
+  - `model.rs`: Validation errors, trait implementations
+  - `optimizer.rs`: Packing algorithm (20+ tests)
+  - `api.rs`: Request parsing, OpenAPI validation
+  - `config.rs`: Boolean parsing, config defaults
+
+### Test Categories in `optimizer.rs`
+
+| Test                                                 | Checks                                      |
+| ---------------------------------------------------- | ------------------------------------------- |
+| `heavy_boxes_stay_below_lighter`                     | Vertical weight sorting                     |
+| `single_box_snaps_to_corner`                         | Placement at (0,0,0)                        |
+| `creates_additional_containers_when_weight_exceeded` | Multi-container logic                       |
+| `reports_objects_too_large_for_container`            | `UnplacedReason::DimensionsExceedContainer` |
+| `reports_objects_too_heavy_for_container`            | `UnplacedReason::TooHeavyForContainer`      |
+| `reject_heavier_on_light_support`                    | Stability: Heavy on light forbidden         |
+| `rotation_toggle_controls_reorientation`             | `allow_item_rotation` effect                |
+| `orientation_deduplication_handles_equal_dimensions` | Cube → 1, cuboid → 3-6 orientations         |
+| `footprint_cluster_groups_similar_dimensions`        | Clustering strategy                         |
+| `diagnostics_capture_support_and_balance_metrics`    | Diagnostic values correct                   |
+| `progress_emits_diagnostics_events`                  | SSE events are emitted                      |
+
+### Running Tests
+
+```bash
+# All tests (42 total)
+cargo test
+
+# Single test with output
+cargo test heavy_boxes_stay_below_lighter -- --nocapture
+
+# Tests with pattern
+cargo test rotation
+
+# Tests by module
+cargo test types::
+cargo test geometry::
+cargo test optimizer::
+```
 
 ### Frontend
 
@@ -299,15 +515,24 @@ if is_rate_limit_response(&headers) {
 
 ## Geometry Functions (`geometry.rs`)
 
+### Using BoundingBox from types.rs
+
+```rust
+use crate::types::BoundingBox;
+
+// Convert PlacedBox to BoundingBox for calculations
+let bbox = placed_box.bounding_box();
+let intersects = bbox.intersects(&other.bounding_box());
+let overlap = bbox.overlap_area_xy(&support.bounding_box());
+```
+
 ### AABB Collision Detection
 
 ```rust
 /// Separating Axis Theorem: Objects do NOT intersect
 /// if they are completely separated on at least one axis.
 pub fn intersects(a: &PlacedBox, b: &PlacedBox) -> bool {
-    !(ax + aw <= bx || bx + bw <= ax ||  // X-axis separated
-      ay + ad <= by || by + bd <= ay ||  // Y-axis separated
-      az + ah <= bz || bz + bh <= az)    // Z-axis separated
+    a.bounding_box().intersects(&b.bounding_box())
 }
 ```
 
@@ -322,7 +547,7 @@ pub fn overlap_1d(a1: f64, a2: f64, b1: f64, b2: f64) -> f64 {
 
 /// Overlap area in XY plane (for support calculation)
 pub fn overlap_area_xy(a: &PlacedBox, b: &PlacedBox) -> f64 {
-    overlap_1d(...) * overlap_1d(...)  // X × Y
+    a.bounding_box().overlap_area_xy(&b.bounding_box())
 }
 ```
 
@@ -331,17 +556,22 @@ pub fn overlap_area_xy(a: &PlacedBox, b: &PlacedBox) -> f64 {
 ```rust
 /// Checks if center of mass projection is carried by supporting box
 pub fn point_inside(point: (f64, f64, f64), placed_box: &PlacedBox) -> bool {
-    px >= bx && px <= bx + bw &&  // X within
-    py >= by && py <= by + bd &&  // Y within
-    pz >= bz && pz <= bz + bh     // Z within
+    placed_box.bounding_box().contains_point(&Vec3::from_tuple(point))
 }
+```
+
+### Distance Functions
+
+```rust
+/// 2D distance in XY plane (using Vec3::distance_2d)
+pub fn distance_2d(a: (f64, f64), b: (f64, f64)) -> f64
 ```
 
 ---
 
 ## Test Patterns
 
-### Test Structure in `optimizer.rs`
+### Test Structure
 
 ```rust
 #[cfg(test)]
@@ -367,33 +597,22 @@ mod tests {
 }
 ```
 
-### Core Test Categories
+### Types Module Tests
 
-| Test                                                 | Checks                                      |
-| ---------------------------------------------------- | ------------------------------------------- |
-| `heavy_boxes_stay_below_lighter`                     | Vertical weight sorting                     |
-| `single_box_snaps_to_corner`                         | Placement at (0,0,0)                        |
-| `creates_additional_containers_when_weight_exceeded` | Multi-container logic                       |
-| `reports_objects_too_large_for_container`            | `UnplacedReason::DimensionsExceedContainer` |
-| `reports_objects_too_heavy_for_container`            | `UnplacedReason::TooHeavyForContainer`      |
-| `reject_heavier_on_light_support`                    | Stability: Heavy on light forbidden         |
-| `rotation_toggle_controls_reorientation`             | `allow_item_rotation` effect                |
-| `orientation_deduplication_handles_equal_dimensions` | Cube → 1, cuboid → 3-6 orientations         |
-| `footprint_cluster_groups_similar_dimensions`        | Clustering strategy                         |
-| `diagnostics_capture_support_and_balance_metrics`    | Diagnostic values correct                   |
-| `progress_emits_diagnostics_events`                  | SSE events are emitted                      |
+```rust
+#[test]
+fn test_vec3_operations() {
+    let a = Vec3::new(1.0, 2.0, 3.0);
+    let b = Vec3::new(4.0, 5.0, 6.0);
+    assert_eq!(a + b, Vec3::new(5.0, 7.0, 9.0));
+}
 
-### Running Tests
-
-```bash
-# All tests
-cargo test
-
-# Single test with output
-cargo test heavy_boxes_stay_below_lighter -- --nocapture
-
-# Tests with pattern
-cargo test rotation
+#[test]
+fn test_bounding_box_intersects() {
+    let a = BoundingBox::from_position_and_dims(Vec3::zero(), Vec3::new(10.0, 10.0, 10.0));
+    let b = BoundingBox::from_position_and_dims(Vec3::new(5.0, 5.0, 5.0), Vec3::new(10.0, 10.0, 10.0));
+    assert!(a.intersects(&b));
+}
 ```
 
 ---
@@ -431,6 +650,12 @@ PackingConfig::builder()
 - O(n) for n objects
 - `PlacedBox` contains clone of `Box3D` → Moderate overhead
 - SSE streaming reduces peak memory for large requests
+
+### Type System Benefits
+
+- `Vec3` operations are `#[inline]` for zero-cost abstraction
+- `BoundingBox` calculations avoid redundant recomputation
+- Trait-based polymorphism enables compiler optimizations
 
 ---
 
@@ -472,3 +697,45 @@ docker run -p 8080:8080 -e SORT_IT_NOW_SKIP_UPDATE_CHECK=1 sort-it-now
 | `docker.yml`  | Tag `v*`        | Multi-arch images on Docker Hub          |
 | `codeql.yml`  | Push            | Security analysis                        |
 | `stale.yml`   | Schedule        | Mark old issues/PRs                      |
+
+---
+
+## Quick Reference
+
+### Adding a New Object Type
+
+1. Define struct in `model.rs`
+2. Implement `Dimensional`, `Positioned`, `Weighted` traits as needed
+3. Add validation in constructor using `types::validation`
+4. Add tests
+
+### Using Geometry Calculations
+
+```rust
+use crate::types::{Vec3, BoundingBox, EPSILON_GENERAL};
+
+// Create bounding box
+let bbox = BoundingBox::from_position_and_dims(
+    Vec3::new(x, y, z),
+    Vec3::new(w, d, h)
+);
+
+// Check collision
+if bbox.intersects(&other_bbox) { ... }
+
+// Calculate support
+let support_area = bbox.overlap_area_xy(&support_bbox);
+```
+
+### Center of Mass Calculation
+
+```rust
+use crate::types::CenterOfMassCalculator;
+
+let mut calc = CenterOfMassCalculator::new();
+for placed in &container.placed {
+    let (cx, cy) = placed.center_xy();
+    calc.add_point(cx, cy, placed.weight);
+}
+let offset = calc.distance_to(container_center);
+```
