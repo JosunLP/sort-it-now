@@ -31,7 +31,45 @@ An intelligent 3D packing optimization service with interactive visualization.
   - Volume utilization
   - Center of mass position
 - **Configuration modal** with object rotation toggle
+- **Internationalization (i18n)** support with English and German
 - **Responsive design**
+
+## 🌍 Internationalization
+
+The application supports multiple languages with automatic detection:
+
+### Available Languages
+
+- 🇬🇧 **English** (`en`) - Default
+- 🇩🇪 **German** (`de`)
+
+### Language Selection
+
+The language can be changed via the language selector in the top-right corner of the UI. The selected language is automatically saved in the browser's local storage.
+
+### Language Detection Priority
+
+1. Previously selected language (localStorage)
+2. Browser language preference
+3. Default to English if neither is available
+
+### Translatable Elements
+
+All user-facing text is translatable, including:
+- UI labels and buttons
+- Form fields and placeholders
+- Help text and instructions
+- Error and validation messages
+- Statistics and diagnostic information
+
+### Adding New Languages
+
+To add a new language:
+
+1. Create a new JSON file in `web/i18n/<lang-code>.json` (e.g., `fr.json` for French)
+2. Copy the structure from `en.json` and translate all values
+3. Update `web/i18n.js` to include the new language in the `availableLanguages` array
+4. Add the language option to the select element in `web/index.html`
 
 ## 🚀 Installation & Startup
 
