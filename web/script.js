@@ -227,8 +227,8 @@ function updateStats(container, dims, visibleCount = null) {
     null;
   const label = container.label ?? null;
   const containerTitle = label
-    ? `${label} (Container ${currentContainerIndex + 1})`
-    : `${liveMode ? 'Live Container' : 'Container'} ${
+    ? `${label} (${i18n.t('stats.container')} ${currentContainerIndex + 1})`
+    : `${liveMode ? i18n.t('stats.liveContainer') : i18n.t('stats.container')} ${
         currentContainerIndex + 1
       }`;
   const diagnostics = container.diagnostics ?? null;
@@ -255,29 +255,29 @@ function updateStats(container, dims, visibleCount = null) {
 
   const diagnosticsHtml = diagnostics
     ? `
-    <p><strong>Balance:</strong> ${formatPercent(
+    <p><strong>${i18n.t('stats.balance')}:</strong> ${formatPercent(
       diagnostics.imbalance_ratio
-    )} (Limit ${limitText})</p>
-    <p><strong>Center of Mass Offset:</strong> ${offsetText}</p>
-    <p><strong>Support:</strong> Ø ${formatPlainPercent(
+    )} (${i18n.t('stats.limit')} ${limitText})</p>
+    <p><strong>${i18n.t('stats.centerOfMassOffset')}:</strong> ${offsetText}</p>
+    <p><strong>${i18n.t('stats.support')}:</strong> Ø ${formatPlainPercent(
       diagnostics.average_support_percent
-    )} · min ${formatPlainPercent(diagnostics.minimum_support_percent)}</p>
+    )} · ${i18n.t('stats.min')} ${formatPlainPercent(diagnostics.minimum_support_percent)}</p>
   `
     : '';
 
   const summaryHtml = summary
     ? `
       <hr />
-      <p><strong>Diagnostics (total):</strong></p>
-      <p>Max. Imbalance: ${formatPercent(summary.max_imbalance_ratio)}</p>
-      <p>Support Ø / min: ${formatPlainPercent(
+      <p><strong>${i18n.t('stats.diagnosticsTotal')}:</strong></p>
+      <p>${i18n.t('stats.maxImbalance')}: ${formatPercent(summary.max_imbalance_ratio)}</p>
+      <p>${i18n.t('stats.supportAvgMin')}: ${formatPlainPercent(
         summary.average_support_percent
       )} · ${formatPlainPercent(summary.worst_support_percent)}</p>
     `
     : '';
 
   document.getElementById('stats').innerHTML = `
-    <h3>${containerTitle} / ${
+    <h3>${containerTitle} ${i18n.t('stats.of')} ${
     liveMode
       ? liveContainers.length || 1
       : packingResults
@@ -285,15 +285,15 @@ function updateStats(container, dims, visibleCount = null) {
       : 1
   }
     </h3>
-    <p><strong>Dimensions:</strong> ${dims.join(' × ')}</p>
-    <p><strong>Objects:</strong> ${objectCount} / ${container.placed.length}</p>
-    <p><strong>Weight:</strong> ${totalWeight.toFixed(2)} kg${
+    <p><strong>${i18n.t('stats.dimensions')}:</strong> ${dims.join(' × ')}</p>
+    <p><strong>${i18n.t('stats.objects')}:</strong> ${objectCount} / ${container.placed.length}</p>
+    <p><strong>${i18n.t('stats.weight')}:</strong> ${totalWeight.toFixed(2)} kg${
     maxWeight ? ` / ${maxWeight} kg` : ''
   }</p>
-    <p><strong>Utilization:</strong> ${utilization}%</p>
+    <p><strong>${i18n.t('stats.utilization')}:</strong> ${utilization}%</p>
     ${
       unplacedCount > 0
-        ? `<p><strong>Not packed:</strong> ${unplacedCount}</p>`
+        ? `<p><strong>${i18n.t('stats.notPacked')}:</strong> ${unplacedCount}</p>`
         : ''
     }
     ${diagnosticsHtml}
@@ -876,18 +876,6 @@ function updateTranslations() {
     // Update text content or specific attributes
     if (element.tagName === 'TITLE') {
       document.title = translation;
-    } else if (element.tagName === 'OPTION') {
-      element.textContent = translation;
-    } else if (element.tagName === 'SPAN' || element.tagName === 'BUTTON') {
-      // For buttons with icons, preserve emoji
-      const hasEmoji = /[\u{1F300}-\u{1F9FF}]/u.test(element.textContent);
-      if (hasEmoji && translation.indexOf(element.textContent.match(/[\u{1F300}-\u{1F9FF}]/u)?.[0] || '') === -1) {
-        // If translation doesn't contain the emoji, try to preserve it
-        const emoji = element.textContent.match(/[\u{1F300}-\u{1F9FF}⚙️📡🚀◄►▶➕💾]/u)?.[0] || '';
-        element.textContent = emoji ? `${emoji} ${translation}` : translation;
-      } else {
-        element.textContent = translation;
-      }
     } else {
       element.textContent = translation;
     }
@@ -902,8 +890,7 @@ function updateAnimationButtonText() {
   if (animateBtn) {
     const key = isAnimating ? 'controls.stopAnimation' : 'controls.startAnimation';
     const text = i18n.t(key);
-    const emoji = isAnimating ? '⏸' : '▶';
-    animateBtn.querySelector('span').textContent = `${emoji} ${text}`;
+    animateBtn.querySelector('span').textContent = text;
   }
 }
 
