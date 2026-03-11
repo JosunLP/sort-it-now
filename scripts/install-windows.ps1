@@ -95,7 +95,11 @@ function Install-FromRelease {
         Invoke-WebRequest -Uri $assetSet.Archive.browser_download_url -Headers $headers -OutFile $archivePath
         if ($assetSet.Checksum) {
             Invoke-WebRequest -Uri $assetSet.Checksum.browser_download_url -Headers $headers -OutFile $checksumPath
-            $expectedHash = ((Get-Content -Path $checksumPath -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+            $checksumTokens = (Get-Content -Path $checksumPath -Raw).Trim() -split '\s+'
+            if (-not $checksumTokens -or [string]::IsNullOrWhiteSpace($checksumTokens[0])) {
+                throw "Checksum file does not contain a valid hash."
+            }
+            $expectedHash = $checksumTokens[0].ToLowerInvariant()
             $actualHash = (Get-FileHash -Path $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
             if ($expectedHash -ne $actualHash) {
                 throw "Checksum verification failed for the downloaded archive."

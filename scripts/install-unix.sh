@@ -61,7 +61,11 @@ detect_target_suffix() {
 
 parse_release_asset_urls() {
   local suffix="$1"
-  python - "$suffix" <<'PY'
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "❌ Python 3 is required for one-command installation metadata parsing." >&2
+    exit 1
+  fi
+  python3 - "$suffix" <<'PY'
 import json
 import sys
 
@@ -100,7 +104,10 @@ download_and_install_latest_release() {
     auth_header=(-H "Authorization: Bearer ${SORT_IT_NOW_GITHUB_TOKEN:-${GITHUB_TOKEN:-}}")
   fi
 
-  release_json="$(curl -fsSL "${auth_header[@]}" -H "Accept: application/vnd.github+json" "$api_url")"
+  if ! release_json="$(curl -fsSL "${auth_header[@]}" -H "Accept: application/vnd.github+json" "$api_url")"; then
+    echo "❌ Failed to fetch release metadata from $api_url." >&2
+    exit 1
+  fi
   mapfile -t asset_urls < <(printf '%s' "$release_json" | parse_release_asset_urls "$suffix")
   archive_url="${asset_urls[0]:-}"
   checksum_url="${asset_urls[1]:-}"
@@ -111,9 +118,15 @@ download_and_install_latest_release() {
   checksum_path="$tmp_dir/release.tar.gz.sha256"
 
   echo "⬇️ Downloading sort-it-now release for $suffix..."
-  curl -fsSL "${auth_header[@]}" -o "$archive_path" "$archive_url"
+  if ! curl -fsSL "${auth_header[@]}" -o "$archive_path" "$archive_url"; then
+    echo "❌ Failed to download release archive from $archive_url." >&2
+    exit 1
+  fi
   if [[ -n "$checksum_url" ]]; then
-    curl -fsSL "${auth_header[@]}" -o "$checksum_path" "$checksum_url"
+    if ! curl -fsSL "${auth_header[@]}" -o "$checksum_path" "$checksum_url"; then
+      echo "❌ Failed to download checksum file from $checksum_url." >&2
+      exit 1
+    fi
     expected_checksum="$(awk '{print tolower($1)}' "$checksum_path" | head -n1)"
     if command -v sha256sum >/dev/null 2>&1; then
       computed_checksum="$(sha256sum "$archive_path" | awk '{print tolower($1)}')"

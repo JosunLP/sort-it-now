@@ -58,6 +58,7 @@ use std::cmp::Ordering;
 
 use crate::geometry::{intersects, overlap_1d, point_inside};
 use crate::model::{Box3D, Container, ContainerBlueprint, PlacedBox};
+use crate::types::{Dimensional, EPSILON_GENERAL};
 use utoipa::ToSchema;
 
 /// Configuration for the packing algorithm.
@@ -272,16 +273,18 @@ struct ObjectOrderingScore {
 }
 
 fn object_ordering_score(object: &Box3D) -> ObjectOrderingScore {
+    let dims = object.dimensions();
+    let (width, depth, height) = (dims.x, dims.y, dims.z);
     let volume = object.volume();
-    let base_area = object.base_area().max(f64::EPSILON);
-    let min_base_edge = object.dims.0.min(object.dims.1).max(f64::EPSILON);
+    let base_area = object.base_area().max(EPSILON_GENERAL);
+    let min_base_edge = width.min(depth).max(EPSILON_GENERAL);
 
     ObjectOrderingScore {
         weight: object.weight,
         volume,
         floor_load: object.weight / base_area,
-        density: object.weight / volume.max(f64::EPSILON),
-        slenderness: object.dims.2 / min_base_edge,
+        density: object.weight / volume.max(EPSILON_GENERAL),
+        slenderness: height / min_base_edge,
     }
 }
 
@@ -902,6 +905,9 @@ fn find_stable_position(
                 let score = PlacementScore {
                     z,
                     instability: stability.instability_score,
+                    support_ratio: stability.support_ratio,
+                    support_centroid_offset_ratio: stability.support_centroid_offset_ratio,
+                    support_contact_count: stability.support_contact_count,
                     y,
                     x,
                     balance_shift: (balance - current_balance).abs(),
@@ -1107,7 +1113,6 @@ fn calculate_balance_after(cont: &Container, new_box: &PlacedBox) -> f64 {
     }
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
 #[derive(Clone, Copy, Debug)]
 struct StaticStabilityMetrics {
     support_ratio: f64,
@@ -1115,6 +1120,9 @@ struct StaticStabilityMetrics {
     support_centroid_offset_ratio: f64,
     instability_score: f64,
 }
+
+const SUPPORT_DEFICIT_WEIGHT: f64 = 4.0;
+const SINGLE_SUPPORT_CONTACT_PENALTY: f64 = 0.15;
 
 fn simulate_static_stability(
     b: &PlacedBox,
@@ -1132,7 +1140,7 @@ fn simulate_static_stability(
 
     let (bx, by, bz) = b.position;
     let (bw, bd, bh) = b.object.dims;
-    let base_area = (bw * bd).max(config.general_epsilon);
+    let base_area = b.base_area().max(config.general_epsilon);
     let mut support_area = 0.0;
     let mut support_center_x = 0.0;
     let mut support_center_y = 0.0;
@@ -1163,19 +1171,24 @@ fn simulate_static_stability(
     let support_ratio = (support_area / base_area).clamp(0.0, 1.0);
     let center_x = bx + bw / 2.0;
     let center_y = by + bd / 2.0;
+    let min_base_edge = bw.min(bd).max(config.general_epsilon);
     let support_centroid_offset_ratio = if support_area > config.general_epsilon {
         let centroid = (
             support_center_x / support_area,
             support_center_y / support_area,
         );
-        let base_radius = (bw.min(bd) / 2.0).max(config.general_epsilon);
+        let base_radius = (min_base_edge / 2.0).max(config.general_epsilon);
         distance_2d((center_x, center_y), centroid) / base_radius
     } else {
         1.0
     };
-    let slenderness = bh / bw.min(bd).max(config.general_epsilon);
-    let contact_penalty = if support_contacts <= 1 { 0.15 } else { 0.0 };
-    let instability_score = (1.0 - support_ratio) * 4.0
+    let slenderness = bh / min_base_edge;
+    let contact_penalty = if support_contacts <= 1 {
+        SINGLE_SUPPORT_CONTACT_PENALTY
+    } else {
+        0.0
+    };
+    let instability_score = (1.0 - support_ratio) * SUPPORT_DEFICIT_WEIGHT
         + support_centroid_offset_ratio * (1.0 + slenderness)
         + contact_penalty;
 
@@ -1194,6 +1207,9 @@ fn simulate_static_stability(
 struct PlacementScore {
     z: f64,
     instability: f64,
+    support_ratio: f64,
+    support_centroid_offset_ratio: f64,
+    support_contact_count: usize,
     y: f64,
     x: f64,
     balance_shift: f64,
@@ -1227,8 +1243,9 @@ fn update_best(
 
 /// Compares two placement scores.
 ///
-/// Priority: z (low) > local instability (low) > y (low) > x (low)
-/// > balance shift (low) > balance (low)
+/// Priority: z (low) > local instability (low) > support ratio (high)
+/// > center-offset ratio (low) > support contacts (high) > y (low)
+/// > x (low) > balance shift (low) > balance (low)
 ///
 /// # Parameters
 /// * `new` - New score
@@ -1242,6 +1259,35 @@ fn is_better_score(new: PlacementScore, current: PlacementScore, config: &Packin
     }
 
     match compare_with_epsilon(new.instability, current.instability, config.general_epsilon) {
+        Ordering::Less => return true,
+        Ordering::Greater => return false,
+        Ordering::Equal => {}
+    }
+
+    match compare_with_epsilon(
+        current.support_ratio,
+        new.support_ratio,
+        config.general_epsilon,
+    ) {
+        Ordering::Less => return true,
+        Ordering::Greater => return false,
+        Ordering::Equal => {}
+    }
+
+    match compare_with_epsilon(
+        new.support_centroid_offset_ratio,
+        current.support_centroid_offset_ratio,
+        config.general_epsilon,
+    ) {
+        Ordering::Less => return true,
+        Ordering::Greater => return false,
+        Ordering::Equal => {}
+    }
+
+    match current
+        .support_contact_count
+        .cmp(&new.support_contact_count)
+    {
         Ordering::Less => return true,
         Ordering::Greater => return false,
         Ordering::Equal => {}

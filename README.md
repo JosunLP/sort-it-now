@@ -46,6 +46,7 @@ An intelligent 3D packing optimization service with interactive visualization.
 - Rust (1.70+)
 - Cargo
 - Modern web browser
+- Python 3 (only needed for the Unix one-command installer)
 
 ### Start the backend
 
@@ -130,7 +131,7 @@ Both installer scripts also continue to work locally from an extracted release b
 
 - **Linux (`.deb`)**: Install with `sudo dpkg -i sort-it-now-<version>-linux-x86_64.deb`, uninstall with `sudo dpkg -r sort-it-now`.
 - **macOS (`.pkg`)**: Install with `sudo installer -pkg sort-it-now-<version>-macos-<arch>.pkg -target /`. Use the uninstall shell script afterwards if you want to remove the binary from `/usr/local/bin`.
-- **Windows (`.msix`)**: The release workflow produces a signed MSIX together with the matching `.cer` certificate. Import the certificate into the trusted people store once, then install the package with `Add-AppxPackage .\sort-it-now-<version>-windows-x86_64.msix`.
+- **Windows (`.msix`)**: The release workflow produces a signed MSIX together with the matching `.cer` certificate. Import the certificate into the trusted people store once, then install the package with `Add-AppxPackage .\sort-it-now-<version>-windows-x86_64.msix`. Only trust that certificate when the release came from the official repository and the published checksums were verified, because the package is signed with a repository-generated self-signed certificate.
 
 ### Docker
 
