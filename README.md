@@ -81,17 +81,56 @@ In the browser:
 A GitHub Actions workflow (`.github/workflows/release.yml`) exists for releases that generates platform packages when tags in the format `v*` are created (or manually via _workflow_dispatch_):
 
 - **Linux (x86_64)**: `sort-it-now-<version>-linux-x86_64.tar.gz`
+- **Linux native installer**: `sort-it-now-<version>-linux-x86_64.deb`
 - **macOS (ARM64/Apple Silicon)**: `sort-it-now-<version>-macos-arm64.tar.gz`
 - **macOS (x86_64/Intel)**: `sort-it-now-<version>-macos-x86_64.tar.gz`
+- **macOS native installer**: `sort-it-now-<version>-macos-<arch>.pkg`
 - **Windows (x86_64)**: `sort-it-now-<version>-windows-x86_64.zip`
+- **Windows native installer**: `sort-it-now-<version>-windows-x86_64.msix`
 
-Each package contains the pre-compiled binary, the current `README.md`, and an installation script.
+Each archive package contains the pre-compiled binary, the current `README.md`, and installation/uninstallation scripts.
 The artifacts are uploaded both as workflow artifacts and automatically added to the GitHub release for the corresponding tag version.
 
-### Installation Scripts
+### Single-command Installation / Uninstallation
+
+- Linux / macOS install:
+
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/install-unix.sh | bash
+  ```
+
+- Linux / macOS uninstall:
+
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/uninstall-unix.sh | bash
+  ```
+
+- Windows install (PowerShell):
+
+  ```powershell
+  irm https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/install-windows.ps1 | iex
+  ```
+
+- Windows uninstall (PowerShell):
+
+  ```powershell
+  irm https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/uninstall-windows.ps1 | iex
+  ```
+
+Both installer scripts also continue to work locally from an extracted release bundle. Set `INSTALL_DIR` (Unix) or `-Destination` (PowerShell) to override the default target.
+
+### Archive Installation Scripts
 
 - Linux/macOS: Run `./install.sh` in the extracted folder (optionally with `sudo`) to copy `sort_it_now` to `/usr/local/bin`.
+- Linux/macOS: Run `./uninstall.sh` in the extracted folder to remove a prior archive-based installation again.
 - Windows: Run `install.ps1` (PowerShell). By default, it installs to `%ProgramFiles%\sort-it-now` and adds the path to the user environment variable.
+- Windows: Run `uninstall.ps1` to remove the installed binary and clean the user PATH entry again.
+
+### Native Installer Notes
+
+- **Linux (`.deb`)**: Install with `sudo dpkg -i sort-it-now-<version>-linux-x86_64.deb`, uninstall with `sudo dpkg -r sort-it-now`.
+- **macOS (`.pkg`)**: Install with `sudo installer -pkg sort-it-now-<version>-macos-<arch>.pkg -target /`. Use the uninstall shell script afterwards if you want to remove the binary from `/usr/local/bin`.
+- **Windows (`.msix`)**: The release workflow produces a signed MSIX together with the matching `.cer` certificate. Import the certificate into the trusted people store once, then install the package with `Add-AppxPackage .\sort-it-now-<version>-windows-x86_64.msix`.
 
 ### Docker
 
@@ -128,7 +167,7 @@ The server is then available at `http://localhost:8080`.
 
 ## 🔔 Automatic Updates on Startup
 
-On startup, the service checks for the latest GitHub releases (`JosunLP/sort-it-now`) in the background. If a newer version is found, the updater downloads the appropriate release package and runs the installation script for the current platform. This automatically applies the update where possible. On Windows, if `sort_it_now.exe` is locked, a `sort_it_now.new.exe` is placed instead.
+On startup, the service checks for the latest GitHub releases (`JosunLP/sort-it-now`) in the background. If a newer version is found, the updater downloads the archive package matching the current platform and updates the installed binary in place. Native installers (`.deb`, `.pkg`, `.msix`) are published alongside the archive assets for manual installation flows. On Windows, if `sort_it_now.exe` is locked, a `sort_it_now.new.exe` is placed instead.
 
 - The check can be disabled via the environment variable `SORT_IT_NOW_SKIP_UPDATE_CHECK=1` (e.g., for offline installations or CI).
 - GitHub limits unauthenticated API calls to 60 per hour. If the limit is reached, the check is skipped and info is displayed. Optionally set `SORT_IT_NOW_GITHUB_TOKEN` (or `GITHUB_TOKEN`) to a Personal Access Token to get higher limits; the updater also uses the token when downloading release artifacts.
