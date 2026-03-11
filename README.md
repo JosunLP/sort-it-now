@@ -61,6 +61,8 @@ The server runs on `http://localhost:8080`
 
 The web client is automatically served by the Rust backend. After startup, simply open `http://localhost:8080/` in your browser.
 
+> 🔗 **Same-origin note:** The frontend intentionally calls `/pack` and `/pack_stream` on the same origin that serves the UI. This matches the default local setup (`cargo run`) and the production deployment model where the Rust backend serves both API and web assets.
+
 In the browser:
 
 - Button "🚀 Pack (Batch)" performs a one-time optimization and displays the result.

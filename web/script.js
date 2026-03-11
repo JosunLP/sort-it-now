@@ -11,6 +11,7 @@ let liveContainers = [];
 let liveUnplaced = [];
 let es = null;
 let liveDiagnosticsSummary = null;
+let lastFocusedElement = null;
 let statusState = {
   mode: 'Idle',
   phase: 'Ready',
@@ -27,9 +28,11 @@ let statusState = {
 const EPSILON_COMPARISON = 1e-6; // For dimension comparisons and fitting checks
 const EPSILON_DEDUPLICATION = 1e-6; // For exact equality checks in deduplication (matches backend)
 const STORAGE_KEY = 'sort-it-now-config-v1';
-const DEFAULT_ANIMATION_DELAY_MS = window.matchMedia?.(
+// Reduced motion uses a slower cadence to avoid rapid flashing, while the default
+// timing keeps the step-by-step animation responsive during normal playback.
+const ANIMATION_DELAY_MS = window.matchMedia(
   '(prefers-reduced-motion: reduce)'
-)?.matches
+).matches
   ? 1400
   : 800;
 
@@ -53,6 +56,9 @@ const DEFAULT_CONFIG = {
 };
 
 function cloneConfigValue(value) {
+  if (typeof structuredClone === 'function') {
+    return structuredClone(value);
+  }
   return JSON.parse(JSON.stringify(value));
 }
 
@@ -144,6 +150,7 @@ function loadInitialConfig() {
 }
 
 let config = loadInitialConfig();
+statusState.totalObjects = config.objects.length;
 
 function computeNextObjectId() {
   return (
@@ -331,6 +338,7 @@ function showToast(message, type = 'info', timeoutMs = 4200) {
   if (!region) return;
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
+  toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
   toast.textContent = message;
   region.appendChild(toast);
   window.setTimeout(() => toast.remove(), timeoutMs);
@@ -347,9 +355,16 @@ function setStatus(nextStatus = {}) {
 
 function renderStatus() {
   const target = document.getElementById('statusContent');
+  const panel = document.getElementById('statusPanel');
   if (!target) return;
+  if (panel) {
+    panel.setAttribute(
+      'aria-live',
+      statusState.level === 'error' ? 'assertive' : 'polite'
+    );
+  }
 
-  const safeTotal = Math.max(statusState.totalObjects || config.objects.length, 0);
+  const safeTotal = Math.max(statusState.totalObjects, 0);
   const progress =
     safeTotal > 0
       ? Math.min(100, (statusState.placedCount / safeTotal) * 100)
@@ -517,7 +532,9 @@ function updateStats(container, dims, visibleCount = null) {
 // Configuration Management
 function openConfigModal() {
   const modal = document.getElementById('configModal');
+  lastFocusedElement = document.activeElement;
   modal.style.display = 'block';
+  modal.setAttribute('aria-hidden', 'false');
 
   renderContainerTypesList();
   renderObjectsList();
@@ -530,7 +547,12 @@ function openConfigModal() {
 }
 
 function closeConfigModal() {
-  document.getElementById('configModal').style.display = 'none';
+  const modal = document.getElementById('configModal');
+  modal.style.display = 'none';
+  modal.setAttribute('aria-hidden', 'true');
+  if (lastFocusedElement instanceof HTMLElement) {
+    lastFocusedElement.focus();
+  }
 }
 
 function renderContainerTypesList() {
@@ -936,7 +958,11 @@ async function fetchPacking() {
     });
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(errorText || `Request failed with status ${response.status}`);
+      throw new Error(
+        errorText
+          ? `${errorText} (HTTP ${response.status})`
+          : `Request failed with status ${response.status}`
+      );
     }
     packingResults = await response.json();
     console.log('✅ Server Response:', packingResults);
@@ -1101,7 +1127,7 @@ function toggleAnimation() {
       if (animationStep >= container.placed.length) animationStep = 0;
       animateContainer(container, containerSize, animationStep);
       animationStep++;
-    }, DEFAULT_ANIMATION_DELAY_MS);
+    }, ANIMATION_DELAY_MS);
   }
 }
 
@@ -1155,12 +1181,13 @@ document
   .addEventListener('click', toggleAnimation);
 document.addEventListener('keydown', (event) => {
   const modalOpen =
-    document.getElementById('configModal').style.display === 'block';
-  const activeTag = document.activeElement?.tagName?.toLowerCase();
+    document.getElementById('configModal').getAttribute('aria-hidden') ===
+    'false';
+  const activeTagName = document.activeElement?.tagName?.toLowerCase();
   const isTyping =
-    activeTag === 'input' || activeTag === 'textarea' || modalOpen;
+    activeTagName === 'input' || activeTagName === 'textarea' || modalOpen;
 
-  if (event.key === 'Escape') {
+  if (event.key === 'Escape' && modalOpen && !isTyping) {
     closeConfigModal();
     return;
   }
@@ -1256,7 +1283,12 @@ function startLivePacking() {
   })
     .then(async (resp) => {
       if (!resp.ok) {
-        throw new Error(`Live packing request failed with status ${resp.status}`);
+        const errorText = await resp.text();
+        throw new Error(
+          errorText
+            ? `${errorText} (HTTP ${resp.status})`
+            : `Live packing request failed with status ${resp.status}`
+        );
       }
       if (!resp.body) throw new Error('No stream response');
       const reader = resp.body.getReader();
