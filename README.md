@@ -25,12 +25,18 @@ An intelligent 3D packing optimization service with interactive visualization.
 - **OrbitControls** for camera control
 - **Container navigation** (Previous/Next buttons)
 - **Step-by-step animation** of the packing process
+- **Highlighted live/animation focus** for the current placement step
 - **Live statistics**:
   - Object count
   - Total weight
   - Volume utilization
   - Center of mass position
+- **Packing status panel** with progress and configuration readiness
+- **Unplaced object panel** with rejection reasons
 - **Configuration modal** with object rotation toggle
+- **Persistent configuration** via browser local storage
+- **Keyboard shortcuts** for batch/live runs, animation, navigation, and configuration
+- **Inline validation and toast notifications** for faster feedback
 - **Responsive design**
 
 ## 🚀 Installation & Startup
@@ -59,6 +65,14 @@ In the browser:
 
 - Button "🚀 Pack (Batch)" performs a one-time optimization and displays the result.
 - Button "📡 Pack (Live)" starts the live stream of optimization steps via SSE and renders them continuously.
+- Saved configurations are restored automatically after a page reload.
+- The status and unplaced-object panels provide immediate feedback without blocking dialogs.
+- Keyboard shortcuts:
+  - `B` = batch packing
+  - `L` = live packing
+  - `C` = open configuration
+  - `←` / `→` = switch containers
+  - `Space` = start/stop animation
 
 ## 📦 Pre-built Releases & Release Pipeline
 

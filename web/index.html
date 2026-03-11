@@ -47,6 +47,14 @@
         box-shadow: 0 4px 20px rgba(0, 170, 255, 0.3);
       }
 
+      .panel {
+        background: rgba(0, 0, 0, 0.8);
+        border: 2px solid #00aaff;
+        border-radius: 8px;
+        box-shadow: 0 4px 20px rgba(0, 170, 255, 0.3);
+        pointer-events: auto;
+      }
+
       #stats h3 {
         color: #00aaff;
         margin-bottom: 15px;
@@ -163,6 +171,222 @@
       #help li:before {
         content: '▸ ';
         color: #ffcc00;
+      }
+
+      #statusPanel {
+        position: absolute;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        min-width: 340px;
+        max-width: min(92vw, 520px);
+        padding: 18px;
+      }
+
+      #statusPanel h3,
+      #unplacedPanel h3 {
+        color: #00aaff;
+        margin-bottom: 12px;
+        font-size: 1.1em;
+      }
+
+      #statusContent {
+        display: grid;
+        gap: 12px;
+      }
+
+      .status-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 0.82rem;
+        font-weight: 700;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .pill.info {
+        color: #7dd3fc;
+      }
+
+      .pill.success {
+        color: #86efac;
+      }
+
+      .pill.warning {
+        color: #fcd34d;
+      }
+
+      .pill.error {
+        color: #fca5a5;
+      }
+
+      .status-message {
+        line-height: 1.5;
+        color: #efefef;
+      }
+
+      .status-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .metric-card {
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(0, 170, 255, 0.2);
+        border-radius: 8px;
+        padding: 10px;
+      }
+
+      .metric-card strong {
+        display: block;
+        margin-bottom: 4px;
+        color: #ffcc00;
+        font-size: 0.82rem;
+      }
+
+      .progress-track {
+        width: 100%;
+        height: 10px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.12);
+      }
+
+      .progress-fill {
+        height: 100%;
+        width: 0;
+        border-radius: inherit;
+        background: linear-gradient(135deg, #00ccff, #55ff55);
+        transition: width 0.25s ease;
+      }
+
+      .legend-list,
+      .issue-list,
+      .shortcut-list {
+        list-style: none;
+        display: grid;
+        gap: 8px;
+        padding: 0;
+      }
+
+      .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 0.88rem;
+      }
+
+      .legend-swatch {
+        width: 14px;
+        height: 14px;
+        border-radius: 4px;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        flex-shrink: 0;
+      }
+
+      .legend-swatch.frame {
+        background: rgba(0, 170, 255, 0.2);
+        border-color: #00aaff;
+      }
+
+      .legend-swatch.placed {
+        background: linear-gradient(135deg, #7c3aed, #06b6d4);
+      }
+
+      .legend-swatch.active {
+        background: linear-gradient(135deg, #ffcc00, #ff7a00);
+      }
+
+      .legend-swatch.unplaced {
+        background: linear-gradient(135deg, #ef4444, #f97316);
+      }
+
+      #unplacedPanel {
+        position: absolute;
+        right: 20px;
+        bottom: 120px;
+        width: min(360px, calc(100vw - 40px));
+        padding: 16px;
+        max-height: 40vh;
+        overflow: auto;
+      }
+
+      .empty-state {
+        color: #bdbdbd;
+        font-size: 0.9rem;
+        line-height: 1.5;
+      }
+
+      .unplaced-item {
+        padding: 10px 12px;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .unplaced-item strong {
+        color: #ffcc00;
+      }
+
+      .unplaced-meta {
+        margin-top: 4px;
+        color: #d5d5d5;
+        font-size: 0.85rem;
+        line-height: 1.45;
+      }
+
+      #toastRegion {
+        position: absolute;
+        right: 20px;
+        top: 20px;
+        z-index: 1100;
+        width: min(360px, calc(100vw - 40px));
+        display: grid;
+        gap: 10px;
+        pointer-events: none;
+      }
+
+      .toast {
+        padding: 12px 14px;
+        border-radius: 10px;
+        color: #fff;
+        background: rgba(15, 23, 42, 0.94);
+        border-left: 4px solid #00aaff;
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+        animation: toast-in 0.25s ease;
+      }
+
+      .toast.success {
+        border-left-color: #22c55e;
+      }
+
+      .toast.warning {
+        border-left-color: #f59e0b;
+      }
+
+      .toast.error {
+        border-left-color: #ef4444;
+      }
+
+      @keyframes toast-in {
+        from {
+          opacity: 0;
+          transform: translateY(-8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
       }
 
       @keyframes pulse {
@@ -325,22 +549,110 @@
       #saveConfigBtn {
         width: 100%;
       }
+
+      .validation-summary {
+        margin-bottom: 20px;
+        padding: 14px;
+        border-radius: 8px;
+        border: 1px solid rgba(0, 170, 255, 0.3);
+        background: rgba(0, 170, 255, 0.08);
+      }
+
+      .validation-summary[data-state='warning'] {
+        border-color: rgba(245, 158, 11, 0.45);
+        background: rgba(245, 158, 11, 0.12);
+      }
+
+      .validation-summary[data-state='ready'] {
+        border-color: rgba(34, 197, 94, 0.45);
+        background: rgba(34, 197, 94, 0.12);
+      }
+
+      .validation-summary strong {
+        color: #ffcc00;
+      }
+
+      .shortcut-list .kbd {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 24px;
+        padding: 2px 6px;
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        font-size: 0.82rem;
+      }
+
+      @media (max-width: 960px) {
+        #stats,
+        #statusPanel,
+        #help,
+        #unplacedPanel {
+          position: static;
+          width: min(100%, 720px);
+          max-width: 100%;
+          margin: 12px auto 0;
+          transform: none;
+        }
+
+        #ui-overlay {
+          overflow: auto;
+          padding: 12px;
+        }
+
+        #controls {
+          position: static;
+          transform: none;
+          flex-wrap: wrap;
+          justify-content: center;
+          width: min(100%, 720px);
+          margin: 12px auto 24px;
+        }
+
+        .separator {
+          display: none;
+        }
+
+        .status-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          scroll-behavior: auto;
+        }
+
+        button,
+        .progress-fill,
+        .toast,
+        .loading {
+          transition: none !important;
+          animation: none !important;
+        }
+      }
     </style>
   </head>
   <body>
     <div id="container"></div>
 
-    <div id="ui-overlay">
-      <div id="stats">
-        <h3>Statistics</h3>
-        <p><strong>Objects:</strong> 0 / 0</p>
-        <p><strong>Weight:</strong> 0.00 kg</p>
-        <p><strong>Utilization:</strong> 0%</p>
-        <p><strong>Center of Mass:</strong> (0, 0, 0)</p>
-      </div>
+      <div id="ui-overlay">
+        <div id="stats">
+          <h3>Statistics</h3>
+          <p><strong>Objects:</strong> 0 / 0</p>
+          <p><strong>Weight:</strong> 0.00 kg</p>
+          <p><strong>Utilization:</strong> 0%</p>
+          <p><strong>Center of Mass:</strong> (0, 0, 0)</p>
+        </div>
 
-      <div id="controls">
-        <button id="configBtn" class="config-btn">⚙️ Configuration</button>
+        <div id="statusPanel" class="panel" aria-live="polite">
+          <h3>📊 Packing Status</h3>
+          <div id="statusContent"></div>
+        </div>
+
+        <div id="controls">
+          <button id="configBtn" class="config-btn">⚙️ Configuration</button>
         <div class="separator"></div>
         <button id="runPacking" class="primary">🚀 Pack (Batch)</button>
         <button id="runPackingLive" class="animate">📡 Pack (Live)</button>
@@ -353,17 +665,46 @@
         </button>
       </div>
 
-      <div id="help">
-        <h4>🎮 Controls</h4>
-        <ul>
-          <li>Left mouse button: Rotate camera</li>
-          <li>Right mouse button: Pan camera</li>
-          <li>Mouse wheel: Zoom</li>
-          <li>Navigation: Switch containers</li>
-          <li>Animation: Step-by-step placement</li>
-        </ul>
+        <div id="help">
+          <h4>🎮 Controls</h4>
+          <ul>
+            <li>Left mouse button: Rotate camera</li>
+            <li>Right mouse button: Pan camera</li>
+            <li>Mouse wheel: Zoom</li>
+            <li>Arrow keys: Switch containers</li>
+            <li>Space: Start/stop animation</li>
+            <li>B / L / C: Batch, Live, Configuration</li>
+          </ul>
+          <h4 style="margin-top: 14px">🎨 Legend</h4>
+          <ul class="legend-list">
+            <li class="legend-item">
+              <span class="legend-swatch frame"></span>
+              <span>Container frame and floor grid</span>
+            </li>
+            <li class="legend-item">
+              <span class="legend-swatch placed"></span>
+              <span>Packed objects already placed</span>
+            </li>
+            <li class="legend-item">
+              <span class="legend-swatch active"></span>
+              <span>Current animation/live focus</span>
+            </li>
+            <li class="legend-item">
+              <span class="legend-swatch unplaced"></span>
+              <span>Objects that could not be packed</span>
+            </li>
+          </ul>
+        </div>
+
+        <div id="unplacedPanel" class="panel">
+          <h3>📦 Unplaced Objects</h3>
+          <div id="unplacedList" class="empty-state">
+            All configured objects fit so far.
+          </div>
+        </div>
+
+        <div id="toastRegion" aria-live="polite" aria-atomic="true"></div>
       </div>
-    </div>
 
     <!-- Konfigurations-Modal -->
     <div id="configModal" class="modal">
@@ -400,6 +741,10 @@
         </div>
 
         <hr />
+
+        <div id="configValidationSummary" class="validation-summary" data-state="info">
+          Review container capacities and object sizes before saving.
+        </div>
 
         <button id="saveConfigBtn">💾 Save Configuration</button>
       </div>

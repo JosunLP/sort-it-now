@@ -11,14 +11,30 @@ let liveContainers = [];
 let liveUnplaced = [];
 let es = null;
 let liveDiagnosticsSummary = null;
+let statusState = {
+  mode: 'Idle',
+  phase: 'Ready',
+  level: 'info',
+  message:
+    'Use the configuration dialog to tune containers and objects, then start a batch or live run.',
+  placedCount: 0,
+  totalObjects: 0,
+  containerCount: 0,
+};
 
 // Epsilon constants for floating point comparisons
 // These match the Rust backend configuration (general_epsilon = 1e-6)
 const EPSILON_COMPARISON = 1e-6; // For dimension comparisons and fitting checks
 const EPSILON_DEDUPLICATION = 1e-6; // For exact equality checks in deduplication (matches backend)
+const STORAGE_KEY = 'sort-it-now-config-v1';
+const DEFAULT_ANIMATION_DELAY_MS = window.matchMedia?.(
+  '(prefers-reduced-motion: reduce)'
+)?.matches
+  ? 1400
+  : 800;
 
 // Configurable parameters
-let config = {
+const DEFAULT_CONFIG = {
   containers: [
     { id: 1, name: 'Standard 70×60×30', dims: [70, 60, 30], maxWeight: 500 },
     { id: 2, name: 'Kompakt 50×50×20', dims: [50, 50, 20], maxWeight: 300 },
@@ -35,6 +51,99 @@ let config = {
   ],
   allowRotations: false,
 };
+
+function cloneConfigValue(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function normalizeConfig(rawConfig) {
+  const fallback = cloneConfigValue(DEFAULT_CONFIG);
+  const ensureDims = (dims) => {
+    if (!Array.isArray(dims) || dims.length !== 3) return null;
+    const numbers = dims.map((value) => Number(value));
+    return numbers.every((value) => Number.isFinite(value) && value > 0)
+      ? numbers
+      : null;
+  };
+
+  const containers = Array.isArray(rawConfig?.containers)
+    ? rawConfig.containers
+        .map((container, index) => {
+          const dims = ensureDims(container?.dims);
+          const maxWeight = Number(container?.maxWeight);
+          if (!dims || !Number.isFinite(maxWeight) || maxWeight <= 0) {
+            return null;
+          }
+
+          return {
+            id: Number.isFinite(Number(container?.id))
+              ? Number(container.id)
+              : index + 1,
+            name:
+              typeof container?.name === 'string' && container.name.trim().length
+                ? container.name.trim()
+                : null,
+            dims,
+            maxWeight,
+          };
+        })
+        .filter(Boolean)
+    : [];
+
+  const objects = Array.isArray(rawConfig?.objects)
+    ? rawConfig.objects
+        .map((obj, index) => {
+          const dims = ensureDims(obj?.dims);
+          const weight = Number(obj?.weight);
+          if (!dims || !Number.isFinite(weight) || weight <= 0) {
+            return null;
+          }
+
+          return {
+            id: Number.isFinite(Number(obj?.id)) ? Number(obj.id) : index + 1,
+            dims,
+            weight,
+          };
+        })
+        .filter(Boolean)
+    : [];
+
+  return {
+    containers: containers.length ? containers : fallback.containers,
+    objects: objects.length ? objects : fallback.objects,
+    allowRotations: rawConfig?.allowRotations === true,
+  };
+}
+
+function persistConfig() {
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+  } catch (error) {
+    console.warn('Could not persist configuration locally.', error);
+  }
+}
+
+function loadInitialConfig() {
+  try {
+    const stored = window.localStorage.getItem(STORAGE_KEY);
+    if (!stored) return cloneConfigValue(DEFAULT_CONFIG);
+    return normalizeConfig(JSON.parse(stored));
+  } catch (error) {
+    console.warn('Could not restore saved configuration, using defaults.', error);
+    return cloneConfigValue(DEFAULT_CONFIG);
+  }
+}
+
+let config = loadInitialConfig();
 
 function computeNextObjectId() {
   return (
@@ -149,7 +258,7 @@ function drawContainerFrame(width, depth, height) {
   scene.add(gridHelper);
 }
 
-function drawBox(obj, color, opacity = 1.0) {
+function drawBox(obj, color, { opacity = 1.0, isActive = false } = {}) {
   const [x, y, z] = obj.pos;
   const [dx, dy, dz] = obj.dims;
   const geometry = new THREE.BoxGeometry(dx, dz, dy);
@@ -159,10 +268,21 @@ function drawBox(obj, color, opacity = 1.0) {
     transparent: opacity < 1.0,
     metalness: 0.3,
     roughness: 0.7,
+    emissive: isActive ? 0xffcc00 : 0x000000,
+    emissiveIntensity: isActive ? 0.35 : 0,
   });
   const cube = new THREE.Mesh(geometry, material);
   cube.position.set(x + dx / 2, z + dz / 2, y + dy / 2);
   scene.add(cube);
+
+  if (isActive) {
+    const highlight = new THREE.LineSegments(
+      new THREE.EdgesGeometry(geometry),
+      new THREE.LineBasicMaterial({ color: 0xffcc00 })
+    );
+    highlight.position.copy(cube.position);
+    scene.add(highlight);
+  }
 }
 
 const COLOR_PALETTE = [
@@ -171,15 +291,18 @@ const COLOR_PALETTE = [
   0xaa00ff, 0x55aaff, 0xaaff55, 0xff55aa, 0x55aaff, 0xffaa55, 0x55ffaa,
 ];
 
-function visualizeContainer(container, containerDims) {
+function visualizeContainer(container, containerDims, activeObjectId = null) {
   clearScene();
   drawContainerFrame(...containerDims);
   const sortedObjects = [...container.placed].sort(
     (a, b) => a.pos[2] - b.pos[2]
   );
-  sortedObjects.forEach((obj, i) =>
-    drawBox(obj, COLOR_PALETTE[i % COLOR_PALETTE.length], 1.0)
-  );
+  sortedObjects.forEach((obj, i) => {
+    drawBox(obj, COLOR_PALETTE[i % COLOR_PALETTE.length], {
+      opacity: 1.0,
+      isActive: activeObjectId === obj.id,
+    });
+  });
   updateStats(container, containerDims);
 }
 
@@ -194,10 +317,101 @@ function animateContainer(container, containerDims, step) {
     drawBox(
       obj,
       COLOR_PALETTE[i % COLOR_PALETTE.length],
-      i === step ? 0.7 : 1.0
+      {
+        opacity: i === step ? 0.7 : 1.0,
+        isActive: i === step,
+      }
     )
   );
   updateStats(container, containerDims, step + 1);
+}
+
+function showToast(message, type = 'info', timeoutMs = 4200) {
+  const region = document.getElementById('toastRegion');
+  if (!region) return;
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.textContent = message;
+  region.appendChild(toast);
+  window.setTimeout(() => toast.remove(), timeoutMs);
+}
+
+function setStatus(nextStatus = {}) {
+  statusState = {
+    ...statusState,
+    ...nextStatus,
+    totalObjects: config.objects.length,
+  };
+  renderStatus();
+}
+
+function renderStatus() {
+  const target = document.getElementById('statusContent');
+  if (!target) return;
+
+  const safeTotal = Math.max(statusState.totalObjects || config.objects.length, 0);
+  const progress =
+    safeTotal > 0
+      ? Math.min(100, (statusState.placedCount / safeTotal) * 100)
+      : 0;
+  const issueCount = collectConfigIssues().length;
+
+  target.innerHTML = `
+    <div class="status-row">
+      <span class="pill ${statusState.level}">Mode: ${statusState.mode}</span>
+      <span class="pill ${statusState.level}">Phase: ${statusState.phase}</span>
+      <span class="pill info">Containers: ${statusState.containerCount}</span>
+    </div>
+    <p class="status-message">${statusState.message}</p>
+    <div class="status-grid">
+      <div class="metric-card">
+        <strong>Placed</strong>
+        <span>${statusState.placedCount} / ${safeTotal}</span>
+      </div>
+      <div class="metric-card">
+        <strong>Remaining</strong>
+        <span>${Math.max(safeTotal - statusState.placedCount, 0)}</span>
+      </div>
+      <div class="metric-card">
+        <strong>Config</strong>
+        <span>${issueCount === 0 ? 'Ready' : `${issueCount} issue(s)`}</span>
+      </div>
+    </div>
+    <div class="progress-track" aria-label="Packing progress">
+      <div class="progress-fill" style="width: ${progress.toFixed(1)}%"></div>
+    </div>
+  `;
+}
+
+function updateUnplacedPanel(items = []) {
+  const target = document.getElementById('unplacedList');
+  if (!target) return;
+
+  if (!Array.isArray(items) || items.length === 0) {
+    target.className = 'empty-state';
+    target.textContent = 'All configured objects fit so far.';
+    return;
+  }
+
+  target.className = 'issue-list';
+  target.innerHTML = items
+    .map((item) => {
+      const dims = Array.isArray(item.dims) ? item.dims.join(' × ') : '—';
+      const reason = item.reason_text ?? item.reason ?? 'No reason provided';
+      const weight = Number(item.weight);
+      const weightText = Number.isFinite(weight) ? `${weight.toFixed(1)} kg` : '—';
+
+      return `
+        <li class="unplaced-item">
+          <strong>Object ${escapeHtml(item.id)}</strong>
+          <div class="unplaced-meta">
+            ${escapeHtml(dims)} · ${escapeHtml(weightText)}<br />
+            ${escapeHtml(reason)}
+          </div>
+        </li>
+      `;
+    })
+    .join('');
 }
 
 function updateStats(container, dims, visibleCount = null) {
@@ -276,15 +490,15 @@ function updateStats(container, dims, visibleCount = null) {
     : '';
 
   document.getElementById('stats').innerHTML = `
-    <h3>${containerTitle} / ${
+    <h3>${escapeHtml(containerTitle)} / ${
     liveMode
       ? liveContainers.length || 1
       : packingResults
       ? packingResults.results.length
       : 1
-  }
-    </h3>
-    <p><strong>Dimensions:</strong> ${dims.join(' × ')}</p>
+   }
+     </h3>
+    <p><strong>Dimensions:</strong> ${escapeHtml(dims.join(' × '))}</p>
     <p><strong>Objects:</strong> ${objectCount} / ${container.placed.length}</p>
     <p><strong>Weight:</strong> ${totalWeight.toFixed(2)} kg${
     maxWeight ? ` / ${maxWeight} kg` : ''
@@ -307,6 +521,7 @@ function openConfigModal() {
 
   renderContainerTypesList();
   renderObjectsList();
+  renderConfigValidationSummary();
 
   const rotationsCheckbox = document.getElementById('allowRotationsCheckbox');
   if (rotationsCheckbox) {
@@ -331,7 +546,7 @@ function renderContainerTypesList() {
       <div class="form-group">
         <label>Label</label>
         <input type="text" value="${
-          entry.name ?? ''
+          escapeHtml(entry.name ?? '')
         }" placeholder="Optional" maxlength="60"
                oninput="updateContainerType(${index}, 'name', null, this.value)" />
       </div>
@@ -364,16 +579,18 @@ window.updateContainerType = function (index, field, subIndex, rawValue) {
   if (field === 'dims') {
     const value = parseFloat(rawValue);
     if (!Number.isFinite(value) || value <= 0) {
-      alert('Please enter a positive number for the dimension.');
+      showToast('Please enter a positive number for the container dimension.', 'error');
       renderContainerTypesList();
+      renderConfigValidationSummary();
       return;
     }
     entry.dims[subIndex] = value;
   } else if (field === 'maxWeight') {
     const value = parseFloat(rawValue);
     if (!Number.isFinite(value) || value <= 0) {
-      alert('Please enter a positive maximum weight.');
+      showToast('Please enter a positive maximum weight.', 'error');
       renderContainerTypesList();
+      renderConfigValidationSummary();
       return;
     }
     entry.maxWeight = value;
@@ -381,11 +598,16 @@ window.updateContainerType = function (index, field, subIndex, rawValue) {
     const value = rawValue.trim();
     entry.name = value.length > 0 ? value : null;
   }
+
+  renderConfigValidationSummary();
+  renderStatus();
 };
 
 window.removeContainerType = function (index) {
   config.containers.splice(index, 1);
   renderContainerTypesList();
+  renderConfigValidationSummary();
+  renderStatus();
 };
 
 function addContainerType() {
@@ -400,6 +622,8 @@ function addContainerType() {
     maxWeight: 250,
   });
   renderContainerTypesList();
+  renderConfigValidationSummary();
+  renderStatus();
 }
 
 function renderObjectsList() {
@@ -438,25 +662,32 @@ window.updateObject = function (index, field, subIndex, value) {
   if (field === 'dims') {
     const numValue = parseFloat(value);
     if (!Number.isFinite(numValue) || numValue <= 0) {
-      alert('Please enter a positive number for the object dimension.');
+      showToast('Please enter a positive number for the object dimension.', 'error');
       renderObjectsList();
+      renderConfigValidationSummary();
       return;
     }
     config.objects[index].dims[subIndex] = numValue;
   } else if (field === 'weight') {
     const numValue = parseFloat(value);
     if (!Number.isFinite(numValue) || numValue <= 0) {
-      alert('Please enter a positive object weight.');
+      showToast('Please enter a positive object weight.', 'error');
       renderObjectsList();
+      renderConfigValidationSummary();
       return;
     }
     config.objects[index].weight = numValue;
   }
+
+  renderConfigValidationSummary();
+  renderStatus();
 };
 
 window.removeObject = function (index) {
   config.objects.splice(index, 1);
   renderObjectsList();
+  renderConfigValidationSummary();
+  renderStatus();
 };
 
 function addObject() {
@@ -467,11 +698,13 @@ function addObject() {
     weight: 25,
   });
   renderObjectsList();
+  renderConfigValidationSummary();
+  renderStatus();
 }
 
 function saveConfig() {
   if (config.containers.length === 0) {
-    alert('At least one container type is required!');
+    showToast('At least one container type is required.', 'error');
     return;
   }
 
@@ -484,12 +717,15 @@ function saveConfig() {
       c.maxWeight <= 0
   );
   if (invalidContainer) {
-    alert('Please check dimensions and weights of the container types.');
+    showToast(
+      'Please check dimensions and maximum weights of the container types.',
+      'error'
+    );
     return;
   }
 
   if (config.objects.length === 0) {
-    alert('At least one object is required!');
+    showToast('At least one object is required.', 'error');
     return;
   }
 
@@ -502,11 +738,21 @@ function saveConfig() {
       o.weight <= 0
   );
   if (invalidObject) {
-    alert('Please check dimensions and weight of the objects.');
+    showToast('Please check dimensions and weight of the objects.', 'error');
     return;
   }
 
+  persistConfig();
   closeConfigModal();
+  renderConfigValidationSummary();
+  setStatus({
+    mode: 'Idle',
+    phase: 'Config saved',
+    level: 'success',
+    message:
+      'Configuration saved locally. It will be restored automatically on the next page load.',
+  });
+  showToast('Configuration saved locally.', 'success');
   console.log('✅ Configuration saved:', config);
 }
 
@@ -597,27 +843,66 @@ function ensureConfigValidOrNotify() {
     return true;
   }
 
-  const message =
-    '⚠️ The current configuration contains issues:\n\n' +
-    issues
-      .map((issue) => {
-        switch (issue.type) {
-          case 'dimensions':
-            return `Object ${issue.id}: does not fit in any container type (${issue.details}).`;
-          case 'weight':
-            return `Object ${issue.id}: exceeds all maximum weights (${issue.details}).`;
-          case 'container':
-            return `Container: ${issue.message}`;
-          case 'config':
-            return issue.message;
-          default:
-            return 'Unknown problem in the configuration.';
-        }
-      })
-      .join('\n') +
-    '\n\nPlease adjust containers or objects. Do you want to continue with the calculation anyway?';
+  renderConfigValidationSummary();
+  openConfigModal();
+  showToast(
+    `Configuration review needed: ${issues.length} issue(s) require attention before packing.`,
+    'warning',
+    5000
+  );
+  setStatus({
+    phase: 'Needs review',
+    level: 'warning',
+    message:
+      'The configuration contains issues. Review the warnings in the configuration dialog before starting a run.',
+  });
+  return false;
+}
 
-  return window.confirm(message);
+function renderConfigValidationSummary() {
+  const target = document.getElementById('configValidationSummary');
+  if (!target) return;
+
+  const issues = collectConfigIssues();
+  if (issues.length === 0) {
+    target.dataset.state = 'ready';
+    target.innerHTML =
+      '<strong>Ready:</strong> Containers and objects are valid for the current packing rules.';
+    return;
+  }
+
+  target.dataset.state = 'warning';
+  target.innerHTML = `
+    <strong>Review required:</strong> ${issues.length} issue(s) detected.
+    <ul class="issue-list">
+      ${issues
+        .slice(0, 4)
+        .map((issue) => {
+          switch (issue.type) {
+            case 'dimensions':
+              return `<li>Object ${escapeHtml(
+                issue.id
+              )}: does not fit in any container type.</li>`;
+            case 'weight':
+              return `<li>Object ${escapeHtml(
+                issue.id
+              )}: exceeds all container weight limits.</li>`;
+            case 'container':
+              return `<li>${escapeHtml(issue.message)}</li>`;
+            case 'config':
+              return `<li>${escapeHtml(issue.message)}</li>`;
+            default:
+              return '<li>Unknown configuration issue.</li>';
+          }
+        })
+        .join('')}
+      ${
+        issues.length > 4
+          ? `<li>…and ${issues.length - 4} more issue(s).</li>`
+          : ''
+      }
+    </ul>
+  `;
 }
 
 async function fetchPacking() {
@@ -635,31 +920,69 @@ async function fetchPacking() {
       objects: config.objects,
       allow_rotations: config.allowRotations === true,
     };
-    const response = await fetch('http://localhost:8080/pack', {
+    setStatus({
+      mode: 'Batch',
+      phase: 'Packing',
+      level: 'info',
+      message: 'Calculating an optimized batch packing result…',
+      placedCount: 0,
+      containerCount: 0,
+    });
+    updateUnplacedPanel([]);
+    const response = await fetch('/pack', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `Request failed with status ${response.status}`);
+    }
     packingResults = await response.json();
     console.log('✅ Server Response:', packingResults);
+    const placedCount = Array.isArray(packingResults.results)
+      ? packingResults.results.reduce(
+          (sum, container) => sum + (container.placed?.length ?? 0),
+          0
+        )
+      : 0;
+    updateUnplacedPanel(packingResults.unplaced ?? []);
     if (
       Array.isArray(packingResults.unplaced) &&
       packingResults.unplaced.length
     ) {
       console.warn('⚠️ Unplaceable objects:', packingResults.unplaced);
-      alert(
-        `⚠️ Warning: ${packingResults.unplaced.length} object(s) could not be packed!\n\n` +
-          packingResults.unplaced
-            .map((u) => `Object ${u.id}: ${u.reason}`)
-            .join('\n')
+      showToast(
+        `${packingResults.unplaced.length} object(s) could not be packed. See the panel for details.`,
+        'warning',
+        5200
       );
     }
     currentContainerIndex = 0;
     showContainer(0);
     updateNavigationButtons();
+    setStatus({
+      mode: 'Batch',
+      phase: packingResults.unplaced?.length ? 'Completed with warnings' : 'Completed',
+      level: packingResults.unplaced?.length ? 'warning' : 'success',
+      message: packingResults.is_complete
+        ? 'Packing completed successfully.'
+        : 'Packing finished, but some objects could not be placed.',
+      placedCount,
+      containerCount: packingResults.results?.length ?? 0,
+    });
+    if (!packingResults.unplaced?.length) {
+      showToast('Packing completed successfully.', 'success');
+    }
   } catch (error) {
     console.error('❌ Error:', error);
-    alert('Server not reachable!');
+    setStatus({
+      mode: 'Batch',
+      phase: 'Failed',
+      level: 'error',
+      message: 'The server request failed. Check the backend and try again.',
+    });
+    showToast(error.message || 'Server not reachable.', 'error', 5200);
   }
 }
 
@@ -778,7 +1101,7 @@ function toggleAnimation() {
       if (animationStep >= container.placed.length) animationStep = 0;
       animateContainer(container, containerSize, animationStep);
       animationStep++;
-    }, 800);
+    }, DEFAULT_ANIMATION_DELAY_MS);
   }
 }
 
@@ -796,6 +1119,8 @@ const allowRotationsCheckbox = document.getElementById(
 if (allowRotationsCheckbox) {
   allowRotationsCheckbox.addEventListener('change', (event) => {
     config.allowRotations = !!event.target.checked;
+    renderConfigValidationSummary();
+    renderStatus();
   });
 }
 
@@ -828,6 +1153,48 @@ document.getElementById('nextContainer').addEventListener('click', () => {
 document
   .getElementById('animateBtn')
   .addEventListener('click', toggleAnimation);
+document.addEventListener('keydown', (event) => {
+  const modalOpen =
+    document.getElementById('configModal').style.display === 'block';
+  const activeTag = document.activeElement?.tagName?.toLowerCase();
+  const isTyping =
+    activeTag === 'input' || activeTag === 'textarea' || modalOpen;
+
+  if (event.key === 'Escape') {
+    closeConfigModal();
+    return;
+  }
+
+  if (isTyping) return;
+
+  if (event.key === 'ArrowLeft') {
+    event.preventDefault();
+    if (!document.getElementById('prevContainer').disabled) {
+      showContainer(currentContainerIndex - 1);
+      updateNavigationButtons();
+    }
+  } else if (event.key === 'ArrowRight') {
+    event.preventDefault();
+    if (!document.getElementById('nextContainer').disabled) {
+      showContainer(currentContainerIndex + 1);
+      updateNavigationButtons();
+    }
+  } else if (event.code === 'Space') {
+    event.preventDefault();
+    if (!document.getElementById('animateBtn').disabled) {
+      toggleAnimation();
+    }
+  } else if (event.key.toLowerCase() === 'b') {
+    event.preventDefault();
+    document.getElementById('runPacking').click();
+  } else if (event.key.toLowerCase() === 'l') {
+    event.preventDefault();
+    document.getElementById('runPackingLive').click();
+  } else if (event.key.toLowerCase() === 'c') {
+    event.preventDefault();
+    openConfigModal();
+  }
+});
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
@@ -840,6 +1207,9 @@ function animate() {
   renderer.render(scene, camera);
 }
 animate();
+renderConfigValidationSummary();
+renderStatus();
+updateUnplacedPanel([]);
 console.log('🚀 3D Visualizer ready!');
 
 // --- Live Modus (SSE) ---
@@ -853,6 +1223,15 @@ function startLivePacking() {
   liveUnplaced = [];
   liveDiagnosticsSummary = null;
   currentContainerIndex = 0;
+  updateUnplacedPanel([]);
+  setStatus({
+    mode: 'Live',
+    phase: 'Streaming',
+    level: 'info',
+    message: 'Waiting for live packing events from the server…',
+    placedCount: 0,
+    containerCount: 0,
+  });
   updateNavigationButtons();
 
   if (es) {
@@ -870,12 +1249,15 @@ function startLivePacking() {
     allow_rotations: config.allowRotations === true,
   };
 
-  fetch('http://localhost:8080/pack_stream', {
+  fetch('/pack_stream', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
     .then(async (resp) => {
+      if (!resp.ok) {
+        throw new Error(`Live packing request failed with status ${resp.status}`);
+      }
       if (!resp.body) throw new Error('No stream response');
       const reader = resp.body.getReader();
       const decoder = new TextDecoder('utf-8');
@@ -904,7 +1286,16 @@ function startLivePacking() {
       }
       handleLiveEvent({ type: 'Finished' });
     })
-    .catch((e) => console.warn('POST /pack_stream error:', e));
+    .catch((e) => {
+      console.warn('POST /pack_stream error:', e);
+      setStatus({
+        mode: 'Live',
+        phase: 'Failed',
+        level: 'error',
+        message: 'Live stream could not be started. Please verify the backend.',
+      });
+      showToast(e.message || 'Live stream could not be started.', 'error', 5200);
+    });
 }
 
 function handleLiveEvent(evt) {
@@ -927,6 +1318,17 @@ function handleLiveEvent(evt) {
       visualizeContainer(liveContainers[currentContainerIndex], dims);
       focusCameraOnDims(dims);
       updateNavigationButtons();
+      setStatus({
+        mode: 'Live',
+        phase: 'Streaming',
+        level: 'info',
+        message: `Container ${liveContainers.length} is now receiving objects.`,
+        placedCount: liveContainers.reduce(
+          (sum, container) => sum + container.placed.length,
+          0
+        ),
+        containerCount: liveContainers.length,
+      });
       break;
     }
     case 'ObjectPlaced': {
@@ -952,10 +1354,21 @@ function handleLiveEvent(evt) {
       });
       cont.total_weight = evt.total_weight;
       if (idx === currentContainerIndex) {
-        visualizeContainer(cont, resolveContainerDims(cont));
+        visualizeContainer(cont, resolveContainerDims(cont), evt.id);
         focusCameraOnDims(resolveContainerDims(cont));
       }
       updateNavigationButtons();
+      setStatus({
+        mode: 'Live',
+        phase: 'Streaming',
+        level: 'info',
+        message: `Placed object ${evt.id} into container ${evt.container_id}.`,
+        placedCount: liveContainers.reduce(
+          (sum, container) => sum + container.placed.length,
+          0
+        ),
+        containerCount: liveContainers.length,
+      });
       break;
     }
     case 'ContainerDiagnostics': {
@@ -978,30 +1391,54 @@ function handleLiveEvent(evt) {
       console.warn(
         `⚠️ Object ${evt.id} could not be packed (${evt.reason_text})`
       );
+      updateUnplacedPanel(liveUnplaced);
+      setStatus({
+        mode: 'Live',
+        phase: 'Warning',
+        level: 'warning',
+        message: `Object ${evt.id} could not be packed and was moved to the unplaced list.`,
+        placedCount: liveContainers.reduce(
+          (sum, container) => sum + container.placed.length,
+          0
+        ),
+        containerCount: liveContainers.length,
+      });
       updateNavigationButtons();
       break;
     }
     case 'Finished': {
-      if (typeof evt.unplaced === 'number' && evt.unplaced > 0) {
-        console.warn(`⚠️ Total unpacked: ${evt.unplaced}`);
-        alert(
-          `⚠️ Warning: ${evt.unplaced} object(s) could not be packed!\n\n` +
-            liveUnplaced
-              .map((u) => `Object ${u.id}: ${u.reason_text}`)
-              .join('\n')
-        );
-      }
       if (evt.diagnostics_summary) {
         liveDiagnosticsSummary = evt.diagnostics_summary;
       } else {
         recomputeLiveDiagnosticsSummary();
       }
+      updateUnplacedPanel(liveUnplaced);
       if (liveContainers.length) {
         updateStats(
           liveContainers[currentContainerIndex],
           resolveContainerDims(liveContainers[currentContainerIndex])
         );
       }
+      setStatus({
+        mode: 'Live',
+        phase: liveUnplaced.length ? 'Completed with warnings' : 'Completed',
+        level: liveUnplaced.length ? 'warning' : 'success',
+        message: liveUnplaced.length
+          ? 'Live packing finished with some unplaced objects.'
+          : 'Live packing finished successfully.',
+        placedCount: liveContainers.reduce(
+          (sum, container) => sum + container.placed.length,
+          0
+        ),
+        containerCount: liveContainers.length,
+      });
+      showToast(
+        liveUnplaced.length
+          ? `${liveUnplaced.length} object(s) remained unpacked after the live run.`
+          : 'Live packing finished successfully.',
+        liveUnplaced.length ? 'warning' : 'success',
+        5200
+      );
       break;
     }
   }
