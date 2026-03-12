@@ -9,6 +9,46 @@ $RequestedVersion = if ($env:SORT_IT_NOW_VERSION) { $env:SORT_IT_NOW_VERSION } e
 $scriptDir = if ($MyInvocation.MyCommand.Path) { Split-Path -Parent $MyInvocation.MyCommand.Path } else { (Get-Location).Path }
 $binaryPath = Join-Path $scriptDir "sort_it_now.exe"
 
+function Test-IsAdministrator {
+    $currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = [Security.Principal.WindowsPrincipal]::new($currentIdentity)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Assert-DestinationWritable {
+    param([string]$TargetDirectory)
+
+    $probeRoot = $TargetDirectory
+    while (-not (Test-Path $probeRoot)) {
+        $parent = Split-Path -Path $probeRoot -Parent
+        if ([string]::IsNullOrWhiteSpace($parent) -or $parent -eq $probeRoot) {
+            break
+        }
+        $probeRoot = $parent
+    }
+
+    if ([string]::IsNullOrWhiteSpace($probeRoot)) {
+        $probeRoot = [System.IO.Path]::GetPathRoot([System.IO.Path]::GetFullPath($TargetDirectory))
+    }
+
+    try {
+        $probeFile = Join-Path $probeRoot ".sort-it-now-write-test-$([guid]::NewGuid())"
+        New-Item -ItemType File -Path $probeFile -Force | Out-Null
+        Remove-Item -Path $probeFile -Force
+    }
+    catch {
+        $fullDestination = [System.IO.Path]::GetFullPath($TargetDirectory)
+        $programFilesRoot = [System.IO.Path]::GetFullPath($env:ProgramFiles)
+        $suggestedDestination = Join-Path $env:LOCALAPPDATA "Programs\sort-it-now"
+
+        if ($fullDestination.StartsWith($programFilesRoot, [System.StringComparison]::OrdinalIgnoreCase) -and -not (Test-IsAdministrator)) {
+            throw "Cannot write to $TargetDirectory. Re-run PowerShell as Administrator or pass -Destination `"$suggestedDestination`"."
+        }
+
+        throw "Cannot write to $TargetDirectory. Choose a writable -Destination (for example `"$suggestedDestination`") or re-run PowerShell with sufficient permissions."
+    }
+}
+
 function Add-DestinationToPath {
     param([string]$PathEntry)
 
@@ -33,6 +73,8 @@ function Install-LocalBinary {
         [string]$TargetDirectory,
         [string]$ReadmeSource
     )
+
+    Assert-DestinationWritable -TargetDirectory $TargetDirectory
 
     if (-not (Test-Path $TargetDirectory)) {
         New-Item -ItemType Directory -Path $TargetDirectory -Force | Out-Null

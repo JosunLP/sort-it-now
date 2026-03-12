@@ -52,9 +52,19 @@ jobs:
             PACKAGE_VERSION="$TRIMMED_VERSION"
             MSIX_VERSION="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}.0"
           else
-            echo "::warning::Release version '$VERSION' is not a plain semver tag; native package metadata falls back to placeholder versions."
-            PACKAGE_VERSION="0.0.0"
-            MSIX_VERSION="0.0.0.0"
+            echo "::warning::Release version '$VERSION' is not a plain semver tag; generating snapshot-style native package metadata."
+            DATE_STAMP="$(date -u +%Y%m%d)"
+            RUN_NUMBER="${GITHUB_RUN_NUMBER:-0}"
+            PACKAGE_VERSION="0.0.0+${DATE_STAMP}.${RUN_NUMBER}"
+            YEAR="$(date -u +%Y)"
+            MONTH_DAY="$(date -u +%m%d)"
+            # MSIX version components are limited to the range 0..=65535.
+            # If GITHUB_RUN_NUMBER is unavailable we fall back to 0 for reproducible snapshot metadata.
+            # `10#` forces base-10 parsing so zero-padded run numbers are not treated as octal.
+            # This wraps only after 65,536 workflow runs, which is well beyond the expected
+            # number of snapshot packages emitted within the same UTC month/day bucket.
+            SEQ="$((10#${RUN_NUMBER} % 65536))"
+            MSIX_VERSION="${YEAR}.${MONTH_DAY}.${SEQ}.0"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "package_version=$PACKAGE_VERSION" >> "$GITHUB_OUTPUT"

@@ -709,10 +709,25 @@
       </div>
 
     <!-- Konfigurations-Modal -->
-    <div id="configModal" class="modal" aria-hidden="true">
+    <div
+      id="configModal"
+      class="modal"
+      aria-hidden="true"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="configModalTitle"
+    >
       <div class="modal-content">
-        <span class="close">&times;</span>
-        <h2>⚙️ Packing Configuration</h2>
+        <button
+          type="button"
+          class="close"
+          id="configModalClose"
+          aria-label="Close configuration dialog"
+          data-modal-focus
+        >
+          &times;
+        </button>
+        <h2 id="configModalTitle">⚙️ Packing Configuration</h2>
 
         <h3>🧱 Container Types</h3>
         <div id="containerTypesList"></div>

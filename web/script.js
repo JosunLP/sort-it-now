@@ -11,6 +11,8 @@ let liveContainers = [];
 let liveUnplaced = [];
 let liveDiagnosticsSummary = null;
 let lastFocusedElement = null;
+let liveStreamController = null;
+let liveStreamSessionId = 0;
 let statusState = {
   mode: 'Idle',
   phase: 'Ready',
@@ -578,6 +580,10 @@ function openConfigModal() {
   if (rotationsCheckbox) {
     rotationsCheckbox.checked = !!config.allowRotations;
   }
+
+  requestAnimationFrame(() => {
+    focusConfigModalPrimaryElement();
+  });
 }
 
 function closeConfigModal() {
@@ -626,6 +632,76 @@ function renderContainerTypesList() {
   `
     )
     .join('');
+}
+
+function getConfigModalFocusableElements() {
+  const modal = document.getElementById('configModal');
+  if (!modal) return [];
+
+  return [...modal.querySelectorAll(
+    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+  )].filter(
+    (element) =>
+      element instanceof HTMLElement &&
+      !element.hasAttribute('disabled') &&
+      element.getAttribute('aria-hidden') !== 'true' &&
+      element.offsetParent !== null
+  );
+}
+
+function focusConfigModalPrimaryElement() {
+  const modal = document.getElementById('configModal');
+  if (!modal || modal.getAttribute('aria-hidden') !== 'false') return;
+
+  const preferred =
+    modal.querySelector('[data-modal-focus]') ?? getConfigModalFocusableElements()[0];
+  if (preferred instanceof HTMLElement) {
+    preferred.focus();
+  }
+}
+
+function trapConfigModalFocus(event) {
+  const focusable = getConfigModalFocusableElements();
+  if (focusable.length === 0) return;
+
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const active = document.activeElement;
+
+  if (event.shiftKey) {
+    if (active === first || !focusable.includes(active)) {
+      event.preventDefault();
+      last.focus();
+    }
+    return;
+  }
+
+  if (active === last || !focusable.includes(active)) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+function stopLiveStream() {
+  // Browser event handlers run on the main thread, so a simple monotonic counter is
+  // sufficient to identify and invalidate superseded live-stream sessions.
+  if (liveStreamController) {
+    liveStreamController.abort();
+    liveStreamController = null;
+    liveStreamSessionId += 1;
+  }
+}
+
+function extractSseEventData(frame) {
+  const dataLines = [];
+  for (const rawLine of frame.split(/\r?\n/)) {
+    if (!rawLine || rawLine.startsWith(':')) continue;
+    if (rawLine.startsWith('data:')) {
+      dataLines.push(rawLine.slice(5).trimStart());
+    }
+  }
+
+  return dataLines.length ? dataLines.join('\n') : null;
 }
 
 window.updateContainerType = function (index, field, subIndex, rawValue) {
@@ -966,6 +1042,9 @@ async function fetchPacking() {
     console.info('🚫 Packing operation aborted: configuration issues.');
     return;
   }
+  stopLiveStream();
+  // Batch requests can replace an active live view, so flip the UI mode before updating status.
+  liveMode = false;
   try {
     const payload = {
       containers: config.containers.map((container) => ({
@@ -1193,7 +1272,6 @@ window.addEventListener('click', (event) => {
 
 document.getElementById('runPacking').addEventListener('click', () => {
   if (isAnimating) toggleAnimation();
-  liveMode = false;
   fetchPacking();
 });
 document.getElementById('runPackingLive').addEventListener('click', () => {
@@ -1233,6 +1311,13 @@ document.addEventListener('keydown', (event) => {
 
   if (event.key === 'Escape' && modalOpen && !isTextInputActive) {
     closeConfigModal();
+    return;
+  }
+
+  if (modalOpen) {
+    if (event.key === 'Tab') {
+      trapConfigModalFocus(event);
+    }
     return;
   }
 
@@ -1289,6 +1374,7 @@ function startLivePacking() {
     console.info('🚫 Live packing aborted: configuration issues.');
     return;
   }
+  stopLiveStream();
   liveMode = true;
   liveContainers = [];
   liveUnplaced = [];
@@ -1315,10 +1401,16 @@ function startLivePacking() {
     allow_rotations: config.allowRotations === true,
   };
 
+  const controller = new AbortController();
+  liveStreamSessionId += 1;
+  const streamSessionId = liveStreamSessionId;
+  liveStreamController = controller;
+
   fetch('/pack_stream', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+    signal: controller.signal,
   })
     .then(async (resp) => {
       if (!resp.ok) {
@@ -1333,31 +1425,47 @@ function startLivePacking() {
       const reader = resp.body.getReader();
       const decoder = new TextDecoder('utf-8');
       let buffer = '';
+      let sawFinishedEvent = false;
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
+        if (streamSessionId !== liveStreamSessionId) {
+          console.debug('Superseded live stream reader canceled.');
+          await reader.cancel();
+          return;
+        }
         buffer += decoder.decode(value, { stream: true });
-        // SSE frames are separated by \n\n
-        let parts = buffer.split(/\n\n/);
+        // SSE frames are separated by blank lines and may contain comment/field lines.
+        let parts = buffer.split(/(?:\r\n|\n)(?:\r\n|\n)/);
         buffer = parts.pop() || '';
         for (const part of parts) {
-          const line = part.trim();
-          if (!line) continue;
-          // Expected: data: {json}
-          const dataLine = line.startsWith('data:')
-            ? line.slice(5).trim()
-            : line;
+          const dataLine = extractSseEventData(part);
+          if (!dataLine) continue;
           try {
             const evt = JSON.parse(dataLine);
+            if (evt.type === 'Finished') {
+              sawFinishedEvent = true;
+            }
+            // A newer run can supersede this stream after `reader.read()` but before we dispatch
+            // the parsed event, so guard once more immediately before mutating the live UI state.
+            if (streamSessionId !== liveStreamSessionId) {
+              console.debug('Ignoring event from superseded live stream.');
+              return;
+            }
             handleLiveEvent(evt);
           } catch (e) {
-            console.warn('SSE parse warn:', e, line);
+            console.warn('SSE parse warn:', e, dataLine);
           }
         }
       }
-      handleLiveEvent({ type: 'Finished' });
+      if (!sawFinishedEvent && streamSessionId === liveStreamSessionId) {
+        handleLiveEvent({ type: 'Finished' });
+      }
     })
     .catch((e) => {
+      if (e?.name === 'AbortError' || streamSessionId !== liveStreamSessionId) {
+        return;
+      }
       console.warn('POST /pack_stream error:', e);
       setStatus({
         mode: 'Live',
@@ -1366,6 +1474,11 @@ function startLivePacking() {
         message: 'Live stream could not be started. Please verify the backend.',
       });
       showToast(e.message || 'Live stream could not be started.', 'error', 5200);
+    })
+    .finally(() => {
+      if (liveStreamController === controller) {
+        liveStreamController = null;
+      }
     });
 }
 
