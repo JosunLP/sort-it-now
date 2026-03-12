@@ -131,7 +131,7 @@ Both installer scripts also continue to work locally from an extracted release b
 
 - **Linux (`.deb`)**: Install with `sudo dpkg -i sort-it-now-<version>-linux-x86_64.deb`, uninstall with `sudo dpkg -r sort-it-now`.
 - **macOS (`.pkg`)**: Install with `sudo installer -pkg sort-it-now-<version>-macos-<arch>.pkg -target /`. Use the uninstall shell script afterwards if you want to remove the binary from `/usr/local/bin`.
-- **Windows (`.msix`)**: The release workflow produces a signed MSIX together with the matching `.cer` certificate. Import the certificate into the trusted people store once, then install the package with `Add-AppxPackage .\sort-it-now-<version>-windows-x86_64.msix`. Only trust that certificate when the release came from the official repository and the published checksums were verified, because the package is signed with a repository-generated self-signed certificate.
+- **Windows (`.msix`)**: Each release workflow run produces a signed MSIX together with a matching `.cer` certificate for that specific release. Import the certificate for the version you want to install into the trusted people store, then install the package with `Add-AppxPackage .\sort-it-now-<version>-windows-x86_64.msix`. Because the workflow currently signs with a repository-generated self-signed certificate, you may need to repeat the import step for a different release, and you should only trust a certificate when the release came from the official repository and the published checksums were verified.
 
 ### Docker
 

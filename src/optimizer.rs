@@ -23,7 +23,9 @@
 //! 4. **Position Search**: For each object, the best position is searched:
 //!    - Iterate over all Z-layers (floor + tops of placed objects)
 //!    - Grid search on X/Y axis with configurable step size
-//!    - Evaluation by `PlacementScore { z, y, x, balance }`
+//!    - Evaluation by `PlacementScore { z, instability, support_ratio,
+//!      support_centroid_offset_ratio, support_contact_count, y, x,
+//!      balance_shift, balance }`
 //!
 //! 5. **Stability Checks**: Each candidate position must pass:
 //!    - No collision with existing objects
@@ -887,20 +889,23 @@ fn find_stable_position(
                 }
 
                 // For placement above the floor: Check stability
+                let support_analysis = analyze_support_surface(&candidate, cont, config);
                 if z > 0.0 {
-                    if !has_sufficient_support(&candidate, cont, config) {
+                    let required_support = (config.support_ratio - config.general_epsilon).max(0.0);
+                    if support_analysis.support_ratio < required_support {
                         continue;
                     }
-                    if !supports_weight_correctly(&candidate, cont, config) {
+                    if !support_analysis.supports_weight {
                         continue;
                     }
-                    if !is_center_supported(&candidate, cont, config) {
+                    if !support_analysis.center_supported {
                         // Prevents overhangs where the center of gravity is not supported
                         continue;
                     }
                 }
 
-                let stability = simulate_static_stability(&candidate, cont, config);
+                let stability =
+                    simulate_static_stability_from_analysis(&candidate, config, support_analysis);
                 let balance = calculate_balance_after(cont, &candidate);
                 let score = PlacementScore {
                     z,
@@ -963,47 +968,6 @@ fn axis_positions(container_len: f64, object_len: f64, step: f64, epsilon: f64) 
     positions
 }
 
-/// Checks if an object is correctly supported by weight.
-///
-/// Ensures that no heavier objects rest on lighter ones.
-///
-/// # Parameters
-/// * `b` - The placed object to check
-/// * `cont` - The container
-/// * `config` - Configuration parameters
-fn supports_weight_correctly(b: &PlacedBox, cont: &Container, config: &PackingConfig) -> bool {
-    if b.position.2 <= config.height_epsilon {
-        return true;
-    }
-
-    let (bx, by, bz) = b.position;
-    let (bw, bd, _) = b.object.dims;
-    let mut has_support = false;
-
-    for p in &cont.placed {
-        let top_z = p.position.2 + p.object.dims.2;
-        if (bz - top_z).abs() > config.height_epsilon {
-            continue;
-        }
-
-        let over_x = overlap_1d(bx, bx + bw, p.position.0, p.position.0 + p.object.dims.0);
-        let over_y = overlap_1d(by, by + bd, p.position.1, p.position.1 + p.object.dims.1);
-
-        if over_x <= 0.0 || over_y <= 0.0 {
-            continue;
-        }
-
-        has_support = true;
-
-        // Heavier object must not rest on lighter one
-        if p.object.weight + config.general_epsilon < b.object.weight {
-            return false;
-        }
-    }
-
-    has_support
-}
-
 /// Checks if an object is sufficiently supported.
 ///
 /// Calculates the fraction of the base area resting on other objects.
@@ -1013,72 +977,7 @@ fn supports_weight_correctly(b: &PlacedBox, cont: &Container, config: &PackingCo
 /// * `cont` - The container
 /// * `config` - Configuration parameters
 fn support_ratio_of(b: &PlacedBox, cont: &Container, config: &PackingConfig) -> f64 {
-    if b.position.2 <= config.height_epsilon {
-        return 1.0;
-    }
-
-    let (bx, by, bz) = b.position;
-    let (bw, bd, _) = b.object.dims;
-    let base_area = bw * bd;
-    let min_support_area = config.general_epsilon * config.general_epsilon;
-    if base_area <= min_support_area {
-        return 0.0;
-    }
-
-    let mut support_area = 0.0;
-
-    for p in &cont.placed {
-        let support_surface_z = p.position.2 + p.object.dims.2;
-        if (bz - support_surface_z).abs() > config.height_epsilon {
-            continue;
-        }
-
-        let over_x = overlap_1d(bx, bx + bw, p.position.0, p.position.0 + p.object.dims.0);
-        let over_y = overlap_1d(by, by + bd, p.position.1, p.position.1 + p.object.dims.1);
-
-        if over_x > 0.0 && over_y > 0.0 {
-            support_area += over_x * over_y;
-        }
-    }
-
-    (support_area / base_area).clamp(0.0, 1.0)
-}
-
-fn has_sufficient_support(b: &PlacedBox, cont: &Container, config: &PackingConfig) -> bool {
-    if b.position.2 <= config.height_epsilon {
-        return true;
-    }
-
-    let required_support = (config.support_ratio - config.general_epsilon).max(0.0);
-    support_ratio_of(b, cont, config) >= required_support
-}
-
-/// Checks if the center of gravity of the object (XY projection) is supported by the bearing surface.
-///
-/// A simple, robust stability heuristic: There must be at least one supporting box directly under
-/// the projected center point (same Z-level, XY contains center point).
-fn is_center_supported(b: &PlacedBox, cont: &Container, config: &PackingConfig) -> bool {
-    if b.position.2 <= config.height_epsilon {
-        return true;
-    }
-
-    let center_xy = (
-        b.position.0 + b.object.dims.0 / 2.0,
-        b.position.1 + b.object.dims.1 / 2.0,
-        b.position.2,
-    );
-
-    for p in &cont.placed {
-        let top_z = p.position.2 + p.object.dims.2;
-        if (b.position.2 - top_z).abs() > config.height_epsilon {
-            continue;
-        }
-
-        if point_inside(center_xy, p) {
-            return true;
-        }
-    }
-    false
+    analyze_support_surface(b, cont, config).support_ratio
 }
 
 /// Calculates the balance/center of gravity deviation after adding an object.
@@ -1121,30 +1020,43 @@ struct StaticStabilityMetrics {
     instability_score: f64,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct SupportAnalysis {
+    support_ratio: f64,
+    support_contact_count: usize,
+    support_centroid_offset_ratio: f64,
+    supports_weight: bool,
+    center_supported: bool,
+}
+
 const SUPPORT_DEFICIT_WEIGHT: f64 = 4.0;
 const SINGLE_SUPPORT_CONTACT_PENALTY: f64 = 0.15;
 
-fn simulate_static_stability(
+fn analyze_support_surface(
     b: &PlacedBox,
     cont: &Container,
     config: &PackingConfig,
-) -> StaticStabilityMetrics {
+) -> SupportAnalysis {
     if b.position.2 <= config.height_epsilon {
-        return StaticStabilityMetrics {
+        return SupportAnalysis {
             support_ratio: 1.0,
             support_contact_count: 0,
             support_centroid_offset_ratio: 0.0,
-            instability_score: 0.0,
+            supports_weight: true,
+            center_supported: true,
         };
     }
 
     let (bx, by, bz) = b.position;
-    let (bw, bd, bh) = b.object.dims;
+    let (bw, bd, _) = b.object.dims;
     let base_area = b.base_area().max(config.general_epsilon);
+    let center_xy = (bx + bw / 2.0, by + bd / 2.0, bz);
     let mut support_area = 0.0;
     let mut support_center_x = 0.0;
     let mut support_center_y = 0.0;
     let mut support_contacts = 0usize;
+    let mut supports_weight = true;
+    let mut center_supported = false;
 
     for p in &cont.placed {
         let support_surface_z = p.position.2 + p.object.dims.2;
@@ -1166,11 +1078,17 @@ fn simulate_static_stability(
         support_center_x += overlap_center_x * overlap_area;
         support_center_y += overlap_center_y * overlap_area;
         support_contacts += 1;
+
+        if p.object.weight + config.general_epsilon < b.object.weight {
+            supports_weight = false;
+        }
+
+        if point_inside(center_xy, p) {
+            center_supported = true;
+        }
     }
 
     let support_ratio = (support_area / base_area).clamp(0.0, 1.0);
-    let center_x = bx + bw / 2.0;
-    let center_y = by + bd / 2.0;
     let min_base_edge = bw.min(bd).max(config.general_epsilon);
     let support_centroid_offset_ratio = if support_area > config.general_epsilon {
         let centroid = (
@@ -1178,26 +1096,69 @@ fn simulate_static_stability(
             support_center_y / support_area,
         );
         let base_radius = (min_base_edge / 2.0).max(config.general_epsilon);
-        distance_2d((center_x, center_y), centroid) / base_radius
+        distance_2d((center_xy.0, center_xy.1), centroid) / base_radius
     } else {
         1.0
     };
+
+    SupportAnalysis {
+        support_ratio,
+        support_contact_count: support_contacts,
+        support_centroid_offset_ratio,
+        // Without any supporting contacts, the candidate is inherently unsupported for load transfer.
+        supports_weight: support_contacts > 0 && supports_weight,
+        center_supported,
+    }
+}
+
+fn simulate_static_stability_from_analysis(
+    b: &PlacedBox,
+    config: &PackingConfig,
+    support: SupportAnalysis,
+) -> StaticStabilityMetrics {
+    if b.position.2 <= config.height_epsilon {
+        return StaticStabilityMetrics {
+            support_ratio: support.support_ratio,
+            support_contact_count: support.support_contact_count,
+            support_centroid_offset_ratio: support.support_centroid_offset_ratio,
+            instability_score: 0.0,
+        };
+    }
+
+    let (_, _, bh) = b.object.dims;
+    let min_base_edge = b
+        .object
+        .dims
+        .0
+        .min(b.object.dims.1)
+        .max(config.general_epsilon);
     let slenderness = bh / min_base_edge;
-    let contact_penalty = if support_contacts <= 1 {
+    let contact_penalty = if support.support_contact_count <= 1 {
         SINGLE_SUPPORT_CONTACT_PENALTY
     } else {
         0.0
     };
-    let instability_score = (1.0 - support_ratio) * SUPPORT_DEFICIT_WEIGHT
-        + support_centroid_offset_ratio * (1.0 + slenderness)
+    let instability_score = (1.0 - support.support_ratio) * SUPPORT_DEFICIT_WEIGHT
+        + support.support_centroid_offset_ratio * (1.0 + slenderness)
         + contact_penalty;
 
     StaticStabilityMetrics {
-        support_ratio,
-        support_contact_count: support_contacts,
-        support_centroid_offset_ratio,
+        support_ratio: support.support_ratio,
+        support_contact_count: support.support_contact_count,
+        support_centroid_offset_ratio: support.support_centroid_offset_ratio,
         instability_score,
     }
+}
+
+// Kept as a convenience function for tests and future call sites that need static
+// stability metrics without manually threading precomputed support analysis.
+#[allow(dead_code)]
+fn simulate_static_stability(
+    b: &PlacedBox,
+    cont: &Container,
+    config: &PackingConfig,
+) -> StaticStabilityMetrics {
+    simulate_static_stability_from_analysis(b, config, analyze_support_surface(b, cont, config))
 }
 
 /// Evaluation of a placement position.

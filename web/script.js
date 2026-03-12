@@ -371,31 +371,61 @@ function renderStatus() {
       : 0;
   const issueCount = collectConfigIssues().length;
 
-  target.innerHTML = `
-    <div class="status-row">
-      <span class="pill ${statusState.level}">Mode: ${statusState.mode}</span>
-      <span class="pill ${statusState.level}">Phase: ${statusState.phase}</span>
-      <span class="pill info">Containers: ${statusState.containerCount}</span>
-    </div>
-    <p class="status-message">${statusState.message}</p>
-    <div class="status-grid">
-      <div class="metric-card">
-        <strong>Placed</strong>
-        <span>${statusState.placedCount} / ${safeTotal}</span>
-      </div>
-      <div class="metric-card">
-        <strong>Remaining</strong>
-        <span>${Math.max(safeTotal - statusState.placedCount, 0)}</span>
-      </div>
-      <div class="metric-card">
-        <strong>Config</strong>
-        <span>${issueCount === 0 ? 'Ready' : `${issueCount} issue(s)`}</span>
-      </div>
-    </div>
-    <div class="progress-track" aria-label="Packing progress">
-      <div class="progress-fill" style="width: ${progress.toFixed(1)}%"></div>
-    </div>
-  `;
+  const allowedLevels = new Set(['info', 'success', 'warning', 'error']);
+  const safeLevel =
+    typeof statusState.level === 'string' && allowedLevels.has(statusState.level)
+      ? statusState.level
+      : 'info';
+  const createPill = (className, label, value) => {
+    const safeClassName =
+      typeof className === 'string' && allowedLevels.has(className)
+        ? className
+        : 'info';
+    const span = document.createElement('span');
+    span.className = `pill ${safeClassName}`;
+    span.textContent = `${label}: ${value}`;
+    return span;
+  };
+  const createMetricCard = (label, value) => {
+    const card = document.createElement('div');
+    card.className = 'metric-card';
+    const strong = document.createElement('strong');
+    strong.textContent = label;
+    const span = document.createElement('span');
+    span.textContent = value;
+    card.append(strong, span);
+    return card;
+  };
+
+  const row = document.createElement('div');
+  row.className = 'status-row';
+  row.append(
+    createPill(safeLevel, 'Mode', statusState.mode),
+    createPill(safeLevel, 'Phase', statusState.phase),
+    createPill('info', 'Containers', statusState.containerCount)
+  );
+
+  const message = document.createElement('p');
+  message.className = 'status-message';
+  message.textContent = statusState.message;
+
+  const grid = document.createElement('div');
+  grid.className = 'status-grid';
+  grid.append(
+    createMetricCard('Placed', `${statusState.placedCount} / ${safeTotal}`),
+    createMetricCard('Remaining', `${Math.max(safeTotal - statusState.placedCount, 0)}`),
+    createMetricCard('Config', issueCount === 0 ? 'Ready' : `${issueCount} issue(s)`)
+  );
+
+  const progressTrack = document.createElement('div');
+  progressTrack.className = 'progress-track';
+  progressTrack.setAttribute('aria-label', 'Packing progress');
+  const progressFill = document.createElement('div');
+  progressFill.className = 'progress-fill';
+  progressFill.style.width = `${progress.toFixed(1)}%`;
+  progressTrack.appendChild(progressFill);
+
+  target.replaceChildren(row, message, grid, progressTrack);
 }
 
 function updateUnplacedPanel(items = []) {
@@ -1184,15 +1214,25 @@ document.addEventListener('keydown', (event) => {
     document.getElementById('configModal').getAttribute('aria-hidden') ===
     'false';
   const activeTagName = document.activeElement?.tagName?.toLowerCase();
-  const isTyping =
-    activeTagName === 'input' || activeTagName === 'textarea' || modalOpen;
+  const isSelectOutsideModal =
+    document.activeElement &&
+    !document.activeElement.closest?.('#configModal') &&
+    activeTagName === 'select';
+  const isTextInputActive =
+    activeTagName === 'input' ||
+    activeTagName === 'textarea' ||
+    document.activeElement?.isContentEditable === true;
+  const shouldSuppressShortcuts =
+    isTextInputActive ||
+    // Keep global shortcuts from interfering with select dropdown navigation outside the modal.
+    isSelectOutsideModal;
 
-  if (event.key === 'Escape' && modalOpen && !isTyping) {
+  if (event.key === 'Escape' && modalOpen && !isTextInputActive) {
     closeConfigModal();
     return;
   }
 
-  if (isTyping) return;
+  if (shouldSuppressShortcuts) return;
 
   if (event.key === 'ArrowLeft') {
     event.preventDefault();
