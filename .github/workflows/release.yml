@@ -268,6 +268,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sort-it-now-${{ steps.meta.outputs.version }}-${{ matrix.artifact_suffix }}
+          if-no-files-found: ignore
           path: |
             sort-it-now-${{ steps.meta.outputs.version }}-${{ matrix.artifact_suffix }}.${{ matrix.archive_extension }}
             sort-it-now-${{ steps.meta.outputs.version }}-${{ matrix.artifact_suffix }}.${{ matrix.archive_extension }}.sha256

@@ -9,7 +9,6 @@ let animationInterval = null;
 let liveMode = false;
 let liveContainers = [];
 let liveUnplaced = [];
-let es = null;
 let liveDiagnosticsSummary = null;
 let lastFocusedElement = null;
 let statusState = {
@@ -431,10 +430,15 @@ function renderStatus() {
 function updateUnplacedPanel(items = []) {
   const target = document.getElementById('unplacedList');
   if (!target) return;
+  const emptyMessage =
+    target.dataset.emptyMessage ?? 'All configured objects fit so far.';
 
   if (!Array.isArray(items) || items.length === 0) {
     target.className = 'empty-state';
-    target.textContent = 'All configured objects fit so far.';
+    const emptyItem = document.createElement('li');
+    emptyItem.setAttribute('role', 'status');
+    emptyItem.textContent = emptyMessage;
+    target.replaceChildren(emptyItem);
     return;
   }
 
@@ -1300,11 +1304,6 @@ function startLivePacking() {
     containerCount: 0,
   });
   updateNavigationButtons();
-
-  if (es) {
-    es.close();
-    es = null;
-  }
 
   const payload = {
     containers: config.containers.map((container) => ({

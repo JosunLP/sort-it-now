@@ -60,7 +60,7 @@ use std::cmp::Ordering;
 
 use crate::geometry::{intersects, overlap_1d, point_inside};
 use crate::model::{Box3D, Container, ContainerBlueprint, PlacedBox};
-use crate::types::{Dimensional, EPSILON_GENERAL};
+use crate::types::Dimensional;
 use utoipa::ToSchema;
 
 /// Configuration for the packing algorithm.
@@ -274,25 +274,28 @@ struct ObjectOrderingScore {
     slenderness: f64,
 }
 
-fn object_ordering_score(object: &Box3D) -> ObjectOrderingScore {
+fn object_ordering_score(object: &Box3D, config: &PackingConfig) -> ObjectOrderingScore {
     let dims = object.dimensions();
     let (width, depth, height) = (dims.x, dims.y, dims.z);
     let volume = object.volume();
-    let base_area = object.base_area().max(EPSILON_GENERAL);
-    let min_base_edge = width.min(depth).max(EPSILON_GENERAL);
+    // `PackingConfig` is publicly constructible, so keep a minimal runtime floor even when
+    // callers bypass the builder/defaults and provide a zero or extremely small epsilon.
+    let epsilon = config.general_epsilon.max(f64::EPSILON);
+    let base_area = object.base_area().max(epsilon);
+    let min_base_edge = width.min(depth).max(epsilon);
 
     ObjectOrderingScore {
         weight: object.weight,
         volume,
         floor_load: object.weight / base_area,
-        density: object.weight / volume.max(EPSILON_GENERAL),
+        density: object.weight / volume.max(epsilon),
         slenderness: height / min_base_edge,
     }
 }
 
-fn compare_objects_for_packing(a: &Box3D, b: &Box3D) -> Ordering {
-    let a_score = object_ordering_score(a);
-    let b_score = object_ordering_score(b);
+fn compare_objects_for_packing(a: &Box3D, b: &Box3D, config: &PackingConfig) -> Ordering {
+    let a_score = object_ordering_score(a, config);
+    let b_score = object_ordering_score(b, config);
 
     b_score
         .weight
@@ -674,7 +677,7 @@ pub fn pack_objects_with_progress(
     // Sorting: heavy and large objects first, then refine ties with
     // pressure/density/slenderness to keep physically demanding items low.
     let mut objects = objects;
-    objects.sort_by(compare_objects_for_packing);
+    objects.sort_by(|a, b| compare_objects_for_packing(a, b, &config));
 
     let cluster_strategy = FootprintClusterStrategy::new(config.footprint_cluster_tolerance);
     objects = cluster_strategy.reorder(objects);
@@ -968,14 +971,15 @@ fn axis_positions(container_len: f64, object_len: f64, step: f64, epsilon: f64) 
     positions
 }
 
-/// Checks if an object is sufficiently supported.
-///
-/// Calculates the fraction of the base area resting on other objects.
+/// Calculates the ratio of an object's base area that is supported.
 ///
 /// # Parameters
 /// * `b` - The placed object to check
 /// * `cont` - The container
 /// * `config` - Configuration parameters
+///
+/// # Returns
+/// A value in the range `0.0..=1.0`, where `1.0` means the full base area is supported.
 fn support_ratio_of(b: &PlacedBox, cont: &Container, config: &PackingConfig) -> f64 {
     analyze_support_surface(b, cont, config).support_ratio
 }
@@ -1994,7 +1998,8 @@ mod tests {
             weight: 10.0,
         };
 
-        let ordering = compare_objects_for_packing(&higher_floor_load, &lower_floor_load);
+        let config = PackingConfig::default();
+        let ordering = compare_objects_for_packing(&higher_floor_load, &lower_floor_load, &config);
         assert_eq!(ordering, Ordering::Less);
     }
 

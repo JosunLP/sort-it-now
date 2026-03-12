@@ -698,9 +698,11 @@
 
         <div id="unplacedPanel" class="panel">
           <h3>📦 Unplaced Objects</h3>
-          <div id="unplacedList" class="empty-state">
-            All configured objects fit so far.
-          </div>
+          <ul
+            id="unplacedList"
+            class="empty-state"
+            data-empty-message="All configured objects fit so far."
+          ></ul>
         </div>
 
         <div id="toastRegion" aria-live="polite" aria-atomic="true"></div>
