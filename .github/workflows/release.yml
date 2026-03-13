@@ -131,7 +131,7 @@ jobs:
           EOF
           chmod 755 "$PKG_ROOT/DEBIAN/prerm"
           DEB_PATH="sort-it-now-${VERSION}-${SUFFIX}.deb"
-          dpkg-deb --build "$PKG_ROOT" "$DEB_PATH"
+          dpkg-deb --root-owner-group --build "$PKG_ROOT" "$DEB_PATH"
           sha256sum "$DEB_PATH" > "$DEB_PATH.sha256"
 
       - name: Package native installer (.pkg)

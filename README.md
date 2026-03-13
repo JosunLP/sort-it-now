@@ -97,7 +97,7 @@ The artifacts are uploaded both as workflow artifacts and automatically added to
 For reproducible installs, prefer a release tag (or commit SHA) instead of the mutable `main` branch.
 Replace every `<version>` placeholder below with the same release tag, including the `v` prefix (for example `v1.2.0`).
 The examples download the script first so you can review it before executing.
-You can additionally set `SORT_IT_NOW_VERSION=<version>` to instruct the script to install or uninstall that specific release.
+You can additionally set `SORT_IT_NOW_VERSION=<version>` to instruct the install scripts to download that specific release.
 
 - Linux / macOS install:
 
@@ -114,7 +114,7 @@ You can additionally set `SORT_IT_NOW_VERSION=<version>` to instruct the script 
   curl -fsSLo /tmp/sort-it-now-uninstall-unix.sh \
     https://raw.githubusercontent.com/JosunLP/sort-it-now/<version>/scripts/uninstall-unix.sh
   chmod +x /tmp/sort-it-now-uninstall-unix.sh
-  SORT_IT_NOW_VERSION=<version> /tmp/sort-it-now-uninstall-unix.sh
+  /tmp/sort-it-now-uninstall-unix.sh
   ```
 
 - Windows install (PowerShell):
@@ -133,7 +133,6 @@ You can additionally set `SORT_IT_NOW_VERSION=<version>` to instruct the script 
   $version = "<version>"
   $script = Join-Path $env:TEMP "sort-it-now-uninstall-windows.ps1"
   irm "https://raw.githubusercontent.com/JosunLP/sort-it-now/$version/scripts/uninstall-windows.ps1" -OutFile $script
-  $env:SORT_IT_NOW_VERSION = $version
   & $script
   ```
 

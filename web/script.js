@@ -151,6 +151,9 @@ function loadInitialConfig() {
 }
 
 let config = loadInitialConfig();
+// Cache the latest validation result so live status updates do not recompute
+// configuration analysis on every SSE event.
+let cachedConfigIssues = collectConfigIssues();
 statusState.totalObjects = config.objects.length;
 
 function computeNextObjectId() {
@@ -370,7 +373,7 @@ function renderStatus() {
     safeTotal > 0
       ? Math.min(100, (statusState.placedCount / safeTotal) * 100)
       : 0;
-  const issueCount = collectConfigIssues().length;
+  const issueCount = getConfigIssues().length;
 
   const allowedLevels = new Set(['info', 'success', 'warning', 'error']);
   const safeLevel =
@@ -427,6 +430,12 @@ function renderStatus() {
   progressTrack.appendChild(progressFill);
 
   target.replaceChildren(row, message, grid, progressTrack);
+}
+
+// Keep status and validation cache in sync whenever configuration data changes.
+function refreshConfigDerivedState() {
+  statusState.totalObjects = config.objects.length;
+  cachedConfigIssues = collectConfigIssues();
 }
 
 function updateUnplacedPanel(items = []) {
@@ -731,12 +740,14 @@ window.updateContainerType = function (index, field, subIndex, rawValue) {
     entry.name = value.length > 0 ? value : null;
   }
 
+  refreshConfigDerivedState();
   renderConfigValidationSummary();
   renderStatus();
 };
 
 window.removeContainerType = function (index) {
   config.containers.splice(index, 1);
+  refreshConfigDerivedState();
   renderContainerTypesList();
   renderConfigValidationSummary();
   renderStatus();
@@ -753,6 +764,7 @@ function addContainerType() {
     dims: [50, 50, 20],
     maxWeight: 250,
   });
+  refreshConfigDerivedState();
   renderContainerTypesList();
   renderConfigValidationSummary();
   renderStatus();
@@ -811,12 +823,14 @@ window.updateObject = function (index, field, subIndex, value) {
     config.objects[index].weight = numValue;
   }
 
+  refreshConfigDerivedState();
   renderConfigValidationSummary();
   renderStatus();
 };
 
 window.removeObject = function (index) {
   config.objects.splice(index, 1);
+  refreshConfigDerivedState();
   renderObjectsList();
   renderConfigValidationSummary();
   renderStatus();
@@ -829,6 +843,7 @@ function addObject() {
     dims: [20, 20, 10],
     weight: 25,
   });
+  refreshConfigDerivedState();
   renderObjectsList();
   renderConfigValidationSummary();
   renderStatus();
@@ -969,8 +984,12 @@ function collectConfigIssues() {
   return issues;
 }
 
+function getConfigIssues() {
+  return cachedConfigIssues;
+}
+
 function ensureConfigValidOrNotify() {
-  const issues = collectConfigIssues();
+  const issues = getConfigIssues();
   if (issues.length === 0) {
     return true;
   }
@@ -995,7 +1014,7 @@ function renderConfigValidationSummary() {
   const target = document.getElementById('configValidationSummary');
   if (!target) return;
 
-  const issues = collectConfigIssues();
+  const issues = getConfigIssues();
   if (issues.length === 0) {
     target.dataset.state = 'ready';
     target.innerHTML =
@@ -1258,6 +1277,7 @@ const allowRotationsCheckbox = document.getElementById(
 if (allowRotationsCheckbox) {
   allowRotationsCheckbox.addEventListener('change', (event) => {
     config.allowRotations = !!event.target.checked;
+    refreshConfigDerivedState();
     renderConfigValidationSummary();
     renderStatus();
   });
