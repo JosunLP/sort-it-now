@@ -94,28 +94,47 @@ The artifacts are uploaded both as workflow artifacts and automatically added to
 
 ### Single-command Installation / Uninstallation
 
+For reproducible installs, prefer a release tag (or commit SHA) instead of the mutable `main` branch.
+Replace every `<version>` placeholder below with the same release tag, including the `v` prefix (for example `v1.2.0`).
+The examples download the script first so you can review it before executing.
+You can additionally set `SORT_IT_NOW_VERSION=<version>` to instruct the script to install or uninstall that specific release.
+
 - Linux / macOS install:
 
   ```bash
-  curl -fsSL https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/install-unix.sh | bash
+  curl -fsSLo /tmp/sort-it-now-install-unix.sh \
+    https://raw.githubusercontent.com/JosunLP/sort-it-now/<version>/scripts/install-unix.sh
+  chmod +x /tmp/sort-it-now-install-unix.sh
+  SORT_IT_NOW_VERSION=<version> /tmp/sort-it-now-install-unix.sh
   ```
 
 - Linux / macOS uninstall:
 
   ```bash
-  curl -fsSL https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/uninstall-unix.sh | bash
+  curl -fsSLo /tmp/sort-it-now-uninstall-unix.sh \
+    https://raw.githubusercontent.com/JosunLP/sort-it-now/<version>/scripts/uninstall-unix.sh
+  chmod +x /tmp/sort-it-now-uninstall-unix.sh
+  SORT_IT_NOW_VERSION=<version> /tmp/sort-it-now-uninstall-unix.sh
   ```
 
 - Windows install (PowerShell):
 
   ```powershell
-  irm https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/install-windows.ps1 | iex
+  $version = "<version>"
+  $script = Join-Path $env:TEMP "sort-it-now-install-windows.ps1"
+  irm "https://raw.githubusercontent.com/JosunLP/sort-it-now/$version/scripts/install-windows.ps1" -OutFile $script
+  $env:SORT_IT_NOW_VERSION = $version
+  & $script
   ```
 
 - Windows uninstall (PowerShell):
 
   ```powershell
-  irm https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/uninstall-windows.ps1 | iex
+  $version = "<version>"
+  $script = Join-Path $env:TEMP "sort-it-now-uninstall-windows.ps1"
+  irm "https://raw.githubusercontent.com/JosunLP/sort-it-now/$version/scripts/uninstall-windows.ps1" -OutFile $script
+  $env:SORT_IT_NOW_VERSION = $version
+  & $script
   ```
 
 Both installer scripts also continue to work locally from an extracted release bundle. Set `INSTALL_DIR` (Unix) or `-Destination` (PowerShell) to override the default target.
