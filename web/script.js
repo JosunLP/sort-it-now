@@ -1341,6 +1341,7 @@ document.addEventListener('keydown', (event) => {
     return;
   }
 
+  if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
   if (shouldSuppressShortcuts) return;
 
   if (event.key === 'ArrowLeft') {

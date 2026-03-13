@@ -49,6 +49,38 @@ function Assert-DestinationWritable {
     }
 }
 
+function Normalize-PathEntry {
+    param([string]$PathEntry)
+
+    if ([string]::IsNullOrWhiteSpace($PathEntry)) {
+        return $null
+    }
+
+    $normalized = $PathEntry.Trim()
+    try {
+        $normalized = [System.IO.Path]::GetFullPath($normalized)
+        if (Test-Path -LiteralPath $normalized) {
+            $normalized = (Get-Item -LiteralPath $normalized -ErrorAction Stop).FullName
+        }
+    }
+    catch {
+        # Fall back to the original entry if the path cannot be resolved canonically.
+    }
+
+    $rootPath = [System.IO.Path]::GetPathRoot($normalized)
+    if (
+        -not [string]::IsNullOrWhiteSpace($rootPath) -and
+        -not $rootPath.Equals($normalized, [System.StringComparison]::OrdinalIgnoreCase)
+    ) {
+        $normalized = $normalized.TrimEnd(
+            [System.IO.Path]::DirectorySeparatorChar,
+            [System.IO.Path]::AltDirectorySeparatorChar
+        )
+    }
+
+    return $normalized
+}
+
 function Add-DestinationToPath {
     param([string]$PathEntry)
 
@@ -58,7 +90,16 @@ function Add-DestinationToPath {
         $entries = $path -split ';' | Where-Object { $_ }
     }
 
-    if ($entries -contains $PathEntry) {
+    $normalizedPathEntry = Normalize-PathEntry -PathEntry $PathEntry
+    $normalizedEntrySet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($entry in $entries) {
+        $normalizedEntry = Normalize-PathEntry -PathEntry $entry
+        if (-not [string]::IsNullOrWhiteSpace($normalizedEntry)) {
+            [void]$normalizedEntrySet.Add($normalizedEntry)
+        }
+    }
+
+    if ($normalizedEntrySet.Contains($normalizedPathEntry)) {
         return
     }
 
