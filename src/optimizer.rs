@@ -281,14 +281,16 @@ fn object_ordering_score(object: &Box3D, config: &PackingConfig) -> ObjectOrderi
     // `PackingConfig` is publicly constructible, so keep a minimal runtime floor even when
     // callers bypass the builder/defaults and provide a zero or extremely small epsilon.
     let epsilon = config.general_epsilon.max(f64::EPSILON);
-    let base_area = object.base_area().max(epsilon);
+    let min_base_area = epsilon.powi(2);
+    let min_volume = epsilon.powi(3);
+    let base_area = object.base_area().max(min_base_area);
     let min_base_edge = width.min(depth).max(epsilon);
 
     ObjectOrderingScore {
         weight: object.weight,
         volume,
         floor_load: object.weight / base_area,
-        density: object.weight / volume.max(epsilon),
+        density: object.weight / volume.max(min_volume),
         slenderness: height / min_base_edge,
     }
 }
@@ -1053,7 +1055,8 @@ fn analyze_support_surface(
 
     let (bx, by, bz) = b.position;
     let (bw, bd, _) = b.object.dims;
-    let base_area = b.base_area().max(config.general_epsilon);
+    let min_base_area = config.general_epsilon.max(f64::EPSILON).powi(2);
+    let base_area = b.base_area().max(min_base_area);
     let center_xy = (bx + bw / 2.0, by + bd / 2.0, bz);
     let mut support_area = 0.0;
     let mut support_center_x = 0.0;
@@ -2004,6 +2007,21 @@ mod tests {
     }
 
     #[test]
+    fn object_ordering_score_scales_epsilon_by_dimension_units() {
+        let config = PackingConfig::builder().general_epsilon(0.1).build();
+        let object = Box3D {
+            id: 1,
+            dims: (0.2, 0.2, 0.2),
+            weight: 10.0,
+        };
+
+        let score = object_ordering_score(&object, &config);
+
+        assert!((score.floor_load - 250.0).abs() <= 1e-9);
+        assert!((score.density - 1250.0).abs() <= 1e-9);
+    }
+
+    #[test]
     fn simulated_stability_penalizes_offset_support() {
         let config = PackingConfig::default();
         let mut container = Container::new((20.0, 20.0, 30.0), 200.0).unwrap();
@@ -2041,5 +2059,32 @@ mod tests {
                 < offset_metrics.support_centroid_offset_ratio
         );
         assert!(centered_metrics.instability_score < offset_metrics.instability_score);
+    }
+
+    #[test]
+    fn support_analysis_uses_area_scaled_epsilon_floor() {
+        let config = PackingConfig::builder().general_epsilon(0.1).build();
+        let mut container = Container::new((5.0, 5.0, 5.0), 100.0).unwrap();
+        container.placed.push(PlacedBox {
+            object: Box3D {
+                id: 1,
+                dims: (0.2, 0.2, 0.2),
+                weight: 5.0,
+            },
+            position: (0.0, 0.0, 0.0),
+        });
+
+        let supported = PlacedBox {
+            object: Box3D {
+                id: 2,
+                dims: (0.2, 0.2, 0.2),
+                weight: 4.0,
+            },
+            position: (0.0, 0.0, 0.2),
+        };
+
+        let analysis = analyze_support_surface(&supported, &container, &config);
+
+        assert!((analysis.support_ratio - 1.0).abs() <= 1e-9);
     }
 }
