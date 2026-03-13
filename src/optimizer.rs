@@ -1097,7 +1097,7 @@ fn analyze_support_surface(
 
     let support_ratio = (support_area / base_area).clamp(0.0, 1.0);
     let min_base_edge = bw.min(bd).max(config.general_epsilon);
-    let support_centroid_offset_ratio = if support_area > config.general_epsilon {
+    let support_centroid_offset_ratio = if support_area >= min_base_area {
         let centroid = (
             support_center_x / support_area,
             support_center_y / support_area,
@@ -2086,5 +2086,34 @@ mod tests {
         let analysis = analyze_support_surface(&supported, &container, &config);
 
         assert!((analysis.support_ratio - 1.0).abs() <= 1e-9);
+    }
+
+    #[test]
+    fn support_centroid_offset_ratio_uses_area_scaled_threshold() {
+        let config = PackingConfig::builder().general_epsilon(0.1).build();
+        let mut container = Container::new((5.0, 5.0, 5.0), 100.0).unwrap();
+        container.placed.push(PlacedBox {
+            object: Box3D {
+                id: 1,
+                dims: (0.2, 0.2, 0.2),
+                weight: 5.0,
+            },
+            position: (0.0, 0.0, 0.0),
+        });
+
+        let offset = PlacedBox {
+            object: Box3D {
+                id: 2,
+                dims: (0.2, 0.2, 0.2),
+                weight: 4.0,
+            },
+            position: (0.05, 0.0, 0.2),
+        };
+
+        let analysis = analyze_support_surface(&offset, &container, &config);
+
+        assert!((analysis.support_ratio - 0.75).abs() <= 1e-9);
+        assert!(analysis.support_centroid_offset_ratio > 0.0);
+        assert!(analysis.support_centroid_offset_ratio < 1.0);
     }
 }

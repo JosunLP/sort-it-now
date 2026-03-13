@@ -37,6 +37,34 @@ function Assert-DestinationWritable {
     }
 }
 
+function Normalize-PathEntry {
+    param([string]$PathEntry)
+
+    if ([string]::IsNullOrWhiteSpace($PathEntry)) {
+        return $null
+    }
+
+    $normalized = $PathEntry.Trim()
+    try {
+        $normalized = [System.IO.Path]::GetFullPath($normalized)
+        if (Test-Path -LiteralPath $normalized) {
+            $normalized = (Get-Item -LiteralPath $normalized -ErrorAction Stop).FullName
+        }
+    }
+    catch {
+        # Fall back to the original entry if the path cannot be resolved canonically.
+    }
+
+    if ($normalized.Length -gt 3) {
+        $normalized = $normalized.TrimEnd(
+            [System.IO.Path]::DirectorySeparatorChar,
+            [System.IO.Path]::AltDirectorySeparatorChar
+        )
+    }
+
+    return $normalized
+}
+
 if (-not (Test-Path $binaryPath)) {
     Write-Host "sort-it-now is not installed in $Destination."
     exit 0
@@ -50,7 +78,10 @@ if (Test-Path $readmePath) {
 }
 
 $pathEntries = ([Environment]::GetEnvironmentVariable('Path', 'User') -split ';' | Where-Object { $_ })
-$remaining = $pathEntries | Where-Object { $_ -ne $Destination }
+$normalizedDestination = Normalize-PathEntry -PathEntry $Destination
+$remaining = $pathEntries | Where-Object {
+    (Normalize-PathEntry -PathEntry $_) -ne $normalizedDestination
+}
 [Environment]::SetEnvironmentVariable('Path', ($remaining -join ';'), 'User')
 
 if (Test-Path $Destination) {

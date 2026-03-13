@@ -65,7 +65,7 @@ parse_release_asset_urls() {
     echo "❌ Python 3 is required for one-command installation metadata parsing." >&2
     exit 1
   fi
-  python3 - "$suffix" <<'PY'
+  python3 -c '
 import json
 import sys
 
@@ -87,7 +87,7 @@ if not archive:
 
 print(archive)
 print(checksum or "")
-PY
+' "$suffix"
 }
 
 download_and_install_latest_release() {
