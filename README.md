@@ -25,12 +25,18 @@ An intelligent 3D packing optimization service with interactive visualization.
 - **OrbitControls** for camera control
 - **Container navigation** (Previous/Next buttons)
 - **Step-by-step animation** of the packing process
+- **Highlighted live/animation focus** for the current placement step
 - **Live statistics**:
   - Object count
   - Total weight
   - Volume utilization
   - Center of mass position
+- **Packing status panel** with progress and configuration readiness
+- **Unplaced object panel** with rejection reasons
 - **Configuration modal** with object rotation toggle
+- **Persistent configuration** via browser local storage
+- **Keyboard shortcuts** for batch/live runs, animation, navigation, and configuration
+- **Inline validation and toast notifications** for faster feedback
 - **Responsive design**
 
 ## 🚀 Installation & Startup
@@ -40,6 +46,7 @@ An intelligent 3D packing optimization service with interactive visualization.
 - Rust (1.70+)
 - Cargo
 - Modern web browser
+- Python 3 (only needed for the Unix one-command installer)
 
 ### Start the backend
 
@@ -55,27 +62,94 @@ The server runs on `http://localhost:8080`
 
 The web client is automatically served by the Rust backend. After startup, simply open `http://localhost:8080/` in your browser.
 
+> 🔗 **Same-origin note:** The frontend intentionally calls `/pack` and `/pack_stream` on the same origin that serves the UI. This matches the default local setup (`cargo run`) and the production deployment model where the Rust backend serves both API and web assets.
+
 In the browser:
 
 - Button "🚀 Pack (Batch)" performs a one-time optimization and displays the result.
 - Button "📡 Pack (Live)" starts the live stream of optimization steps via SSE and renders them continuously.
+- Saved configurations are restored automatically after a page reload.
+- The status and unplaced-object panels provide immediate feedback without blocking dialogs.
+- Keyboard shortcuts:
+  - `B` = batch packing
+  - `L` = live packing
+  - `C` = open configuration
+  - `←` / `→` = switch containers
+  - `Space` = start/stop animation
 
 ## 📦 Pre-built Releases & Release Pipeline
 
 A GitHub Actions workflow (`.github/workflows/release.yml`) exists for releases that generates platform packages when tags in the format `v*` are created (or manually via _workflow_dispatch_):
 
 - **Linux (x86_64)**: `sort-it-now-<version>-linux-x86_64.tar.gz`
+- **Linux native installer**: `sort-it-now-<version>-linux-x86_64.deb`
 - **macOS (ARM64/Apple Silicon)**: `sort-it-now-<version>-macos-arm64.tar.gz`
 - **macOS (x86_64/Intel)**: `sort-it-now-<version>-macos-x86_64.tar.gz`
+- **macOS native installer**: `sort-it-now-<version>-macos-<arch>.pkg`
 - **Windows (x86_64)**: `sort-it-now-<version>-windows-x86_64.zip`
+- **Windows native installer**: `sort-it-now-<version>-windows-x86_64.msix`
 
-Each package contains the pre-compiled binary, the current `README.md`, and an installation script.
+Each archive package contains the pre-compiled binary, the current `README.md`, and installation/uninstallation scripts.
 The artifacts are uploaded both as workflow artifacts and automatically added to the GitHub release for the corresponding tag version.
 
-### Installation Scripts
+### Single-command Installation / Uninstallation
+
+For reproducible installs, prefer a release tag (or commit SHA) instead of the mutable `main` branch.
+Replace every `<version>` placeholder below with the same release tag, including the `v` prefix (for example `v1.2.0`).
+The examples download the script first so you can review it before executing.
+You can additionally set `SORT_IT_NOW_VERSION=<version>` to instruct the install scripts to download that specific release.
+
+- Linux / macOS install:
+
+  ```bash
+  curl -fsSLo /tmp/sort-it-now-install-unix.sh \
+    https://raw.githubusercontent.com/JosunLP/sort-it-now/<version>/scripts/install-unix.sh
+  chmod +x /tmp/sort-it-now-install-unix.sh
+  SORT_IT_NOW_VERSION=<version> /tmp/sort-it-now-install-unix.sh
+  ```
+
+- Linux / macOS uninstall:
+
+  ```bash
+  curl -fsSLo /tmp/sort-it-now-uninstall-unix.sh \
+    https://raw.githubusercontent.com/JosunLP/sort-it-now/<version>/scripts/uninstall-unix.sh
+  chmod +x /tmp/sort-it-now-uninstall-unix.sh
+  /tmp/sort-it-now-uninstall-unix.sh
+  ```
+
+- Windows install (PowerShell):
+
+  ```powershell
+  $version = "<version>"
+  $script = Join-Path $env:TEMP "sort-it-now-install-windows.ps1"
+  irm "https://raw.githubusercontent.com/JosunLP/sort-it-now/$version/scripts/install-windows.ps1" -OutFile $script
+  $env:SORT_IT_NOW_VERSION = $version
+  & $script
+  ```
+
+- Windows uninstall (PowerShell):
+
+  ```powershell
+  $version = "<version>"
+  $script = Join-Path $env:TEMP "sort-it-now-uninstall-windows.ps1"
+  irm "https://raw.githubusercontent.com/JosunLP/sort-it-now/$version/scripts/uninstall-windows.ps1" -OutFile $script
+  & $script
+  ```
+
+Both installer scripts also continue to work locally from an extracted release bundle. Set `INSTALL_DIR` (Unix) or `-Destination` (PowerShell) to override the default target.
+
+### Archive Installation Scripts
 
 - Linux/macOS: Run `./install.sh` in the extracted folder (optionally with `sudo`) to copy `sort_it_now` to `/usr/local/bin`.
+- Linux/macOS: Run `./uninstall.sh` in the extracted folder to remove a prior archive-based installation again.
 - Windows: Run `install.ps1` (PowerShell). By default, it installs to `%ProgramFiles%\sort-it-now` and adds the path to the user environment variable.
+- Windows: Run `uninstall.ps1` to remove the installed binary and clean the user PATH entry again.
+
+### Native Installer Notes
+
+- **Linux (`.deb`)**: Install with `sudo dpkg -i sort-it-now-<version>-linux-x86_64.deb`, uninstall with `sudo dpkg -r sort-it-now`.
+- **macOS (`.pkg`)**: Install with `sudo installer -pkg sort-it-now-<version>-macos-<arch>.pkg -target /`. Use the uninstall shell script afterwards if you want to remove the binary from `/usr/local/bin`.
+- **Windows (`.msix`)**: Each release workflow run produces a signed MSIX together with a matching `.cer` certificate for that specific release. Import the certificate for the version you want to install into the trusted people store, then install the package with `Add-AppxPackage .\sort-it-now-<version>-windows-x86_64.msix`. Because the workflow currently signs with a repository-generated self-signed certificate, you may need to repeat the import step for a different release, and you should only trust a certificate when the release came from the official repository and the published checksums were verified.
 
 ### Docker
 
@@ -112,7 +186,7 @@ The server is then available at `http://localhost:8080`.
 
 ## 🔔 Automatic Updates on Startup
 
-On startup, the service checks for the latest GitHub releases (`JosunLP/sort-it-now`) in the background. If a newer version is found, the updater downloads the appropriate release package and runs the installation script for the current platform. This automatically applies the update where possible. On Windows, if `sort_it_now.exe` is locked, a `sort_it_now.new.exe` is placed instead.
+On startup, the service checks for the latest GitHub releases (`JosunLP/sort-it-now`) in the background. If a newer version is found, the updater downloads the archive package matching the current platform and updates the installed binary in place. Native installers (`.deb`, `.pkg`, `.msix`) are published alongside the archive assets for manual installation flows. On Windows, if `sort_it_now.exe` is locked, a `sort_it_now.new.exe` is placed instead.
 
 - The check can be disabled via the environment variable `SORT_IT_NOW_SKIP_UPDATE_CHECK=1` (e.g., for offline installations or CI).
 - GitHub limits unauthenticated API calls to 60 per hour. If the limit is reached, the check is skipped and info is displayed. Optionally set `SORT_IT_NOW_GITHUB_TOKEN` (or `GITHUB_TOKEN`) to a Personal Access Token to get higher limits; the updater also uses the token when downloading release artifacts.
