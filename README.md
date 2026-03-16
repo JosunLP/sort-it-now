@@ -6,13 +6,15 @@ An intelligent 3D packing optimization service with interactive visualization.
 
 ### Backend (Rust)
 
-- **Heuristic packing algorithm** considering:
+- **Physics-aware heuristic packing algorithm** considering:
   - Weight limits and distribution
   - Stability and support (60% minimum support ratio)
   - Center of mass balance
   - Layering (heavy objects at the bottom)
 - **Automatic multi-container management**
 - **Optional object rotations** (enabled via request flag or environment variable)
+- **Background GitHub release updater** with checksum verification and configurable rate-limit handling
+- **Native release installers** for Linux (`.deb`), macOS (`.pkg`), and Windows (`.msix`)
 - **Comprehensive unit tests**
 - **REST API** with JSON communication
 - **OpenAPI & Swagger UI** with live documentation at `/docs`
@@ -95,7 +97,7 @@ The artifacts are uploaded both as workflow artifacts and automatically added to
 ### Single-command Installation / Uninstallation
 
 For reproducible installs, prefer a release tag (or commit SHA) instead of the mutable `main` branch.
-Replace every `<version>` placeholder below with the same release tag, including the `v` prefix (for example `v1.2.0`).
+Replace every `<version>` placeholder below with the same release tag, including the `v` prefix (for example `v1.3.0`).
 The examples download the script first so you can review it before executing.
 You can additionally set `SORT_IT_NOW_VERSION=<version>` to instruct the install scripts to download that specific release.
 
