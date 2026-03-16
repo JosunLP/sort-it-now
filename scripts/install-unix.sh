@@ -111,6 +111,10 @@ download_and_install_latest_release() {
   mapfile -t asset_urls < <(printf '%s' "$release_json" | parse_release_asset_urls "$suffix")
   archive_url="${asset_urls[0]:-}"
   checksum_url="${asset_urls[1]:-}"
+  if [[ -z "$archive_url" ]]; then
+    echo "❌ No matching release asset for $suffix was found in release '$REQUESTED_VERSION'." >&2
+    exit 1
+  fi
 
   tmp_dir="$(mktemp -d)"
   trap 'rm -rf "$tmp_dir"' EXIT
