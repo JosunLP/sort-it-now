@@ -126,10 +126,10 @@ jobs:
         run: |
           set -eux
           PKG_ROOT="pkgroot"
-          mkdir -p "$PKG_ROOT/DEBIAN" "$PKG_ROOT/usr/local/bin" "$PKG_ROOT/usr/local/share/doc/sort-it-now"
-          cp target/release/sort_it_now "$PKG_ROOT/usr/local/bin/"
-          chmod 755 "$PKG_ROOT/usr/local/bin/sort_it_now"
-          cp README.md "$PKG_ROOT/usr/local/share/doc/sort-it-now/README.md"
+          mkdir -p "$PKG_ROOT/DEBIAN" "$PKG_ROOT/usr/bin" "$PKG_ROOT/usr/share/doc/sort-it-now"
+          cp target/release/sort_it_now "$PKG_ROOT/usr/bin/"
+          chmod 755 "$PKG_ROOT/usr/bin/sort_it_now"
+          cp README.md "$PKG_ROOT/usr/share/doc/sort-it-now/README.md"
           cat > "$PKG_ROOT/DEBIAN/control" <<EOF
           Package: sort-it-now
           Version: ${PACKAGE_VERSION}
@@ -141,12 +141,6 @@ jobs:
            Sort-it-now optimizes cuboid placement with stability, weight,
            balance and live visualization support.
           EOF
-          cat > "$PKG_ROOT/DEBIAN/prerm" <<'EOF'
-          #!/usr/bin/env bash
-          set -euo pipefail
-          rm -f /usr/local/bin/sort_it_now
-          EOF
-          chmod 755 "$PKG_ROOT/DEBIAN/prerm"
           DEB_PATH="sort-it-now-${VERSION}-${SUFFIX}.deb"
           dpkg-deb --root-owner-group --build "$PKG_ROOT" "$DEB_PATH"
           sha256sum "$DEB_PATH" > "$DEB_PATH.sha256"
