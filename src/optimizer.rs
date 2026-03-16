@@ -97,6 +97,26 @@ impl PackingConfig {
     pub fn builder() -> PackingConfigBuilder {
         PackingConfigBuilder::default()
     }
+
+    /// Normalizes numerically invalid runtime inputs for the packing pipeline.
+    ///
+    /// `PackingConfig` remains publicly constructible, so packing re-sanitizes the active
+    /// config before numeric thresholds are derived from user-provided values.
+    fn sanitized(mut self) -> Self {
+        self.grid_step = sanitize_positive_finite(self.grid_step, Self::DEFAULT_GRID_STEP);
+        self.support_ratio = sanitize_ratio(self.support_ratio, Self::DEFAULT_SUPPORT_RATIO);
+        self.height_epsilon =
+            sanitize_nonnegative_finite(self.height_epsilon, Self::DEFAULT_HEIGHT_EPSILON);
+        self.general_epsilon =
+            sanitize_nonnegative_finite(self.general_epsilon, Self::DEFAULT_GENERAL_EPSILON);
+        self.balance_limit_ratio =
+            sanitize_ratio(self.balance_limit_ratio, Self::DEFAULT_BALANCE_LIMIT_RATIO);
+        self.footprint_cluster_tolerance = sanitize_nonnegative_finite(
+            self.footprint_cluster_tolerance,
+            Self::DEFAULT_FOOTPRINT_CLUSTER_TOLERANCE,
+        );
+        self
+    }
 }
 
 impl Default for PackingConfig {
@@ -110,6 +130,34 @@ impl Default for PackingConfig {
             footprint_cluster_tolerance: Self::DEFAULT_FOOTPRINT_CLUSTER_TOLERANCE,
             allow_item_rotation: Self::DEFAULT_ALLOW_ITEM_ROTATION,
         }
+    }
+}
+
+fn sanitize_positive_finite(value: f64, fallback: f64) -> f64 {
+    if value.is_finite() && value > 0.0 {
+        value
+    } else {
+        fallback
+    }
+}
+
+fn sanitize_nonnegative_finite(value: f64, fallback: f64) -> f64 {
+    if value.is_finite() && value >= 0.0 {
+        value
+    } else {
+        fallback
+    }
+}
+
+/// Accepts ratio-like values only inside the supported `[0.0, 1.0]` interval.
+///
+/// Non-finite values fall back to the supplied default so downstream numeric thresholds remain
+/// comparable.
+fn sanitize_ratio(value: f64, fallback: f64) -> f64 {
+    if value.is_finite() && (0.0..=1.0).contains(&value) {
+        value
+    } else {
+        fallback
     }
 }
 
@@ -663,6 +711,8 @@ pub fn pack_objects_with_progress(
             diagnostics_summary: PackingDiagnosticsSummary::default(),
         };
     }
+
+    let config = config.sanitized();
 
     let mut templates = container_templates;
     templates.sort_by(|a, b| {
@@ -2115,5 +2165,69 @@ mod tests {
         assert!((analysis.support_ratio - 0.75).abs() <= 1e-9);
         assert!(analysis.support_centroid_offset_ratio > 0.0);
         assert!(analysis.support_centroid_offset_ratio < 1.0);
+    }
+
+    #[test]
+    fn packing_config_sanitizes_invalid_numeric_values() {
+        let config = PackingConfig {
+            grid_step: 0.0,
+            support_ratio: -0.5,
+            height_epsilon: -1.0,
+            general_epsilon: f64::NAN,
+            balance_limit_ratio: 2.0,
+            footprint_cluster_tolerance: -0.5,
+            allow_item_rotation: true,
+        };
+
+        let sanitized = config.sanitized();
+
+        assert_eq!(sanitized.grid_step, PackingConfig::DEFAULT_GRID_STEP);
+        // Ratio-like fields fall back to safe defaults when callers provide out-of-range values.
+        assert_eq!(
+            sanitized.support_ratio,
+            PackingConfig::DEFAULT_SUPPORT_RATIO
+        );
+        assert_eq!(
+            sanitized.height_epsilon,
+            PackingConfig::DEFAULT_HEIGHT_EPSILON
+        );
+        assert_eq!(
+            sanitized.general_epsilon,
+            PackingConfig::DEFAULT_GENERAL_EPSILON
+        );
+        // Balance is expressed as a ratio of the diagonal, so invalid values are reset as well.
+        assert_eq!(
+            sanitized.balance_limit_ratio,
+            PackingConfig::DEFAULT_BALANCE_LIMIT_RATIO
+        );
+        assert_eq!(
+            sanitized.footprint_cluster_tolerance,
+            PackingConfig::DEFAULT_FOOTPRINT_CLUSTER_TOLERANCE
+        );
+        assert!(sanitized.allow_item_rotation);
+    }
+
+    #[test]
+    fn packing_uses_sanitized_support_ratio_thresholds() {
+        let config = PackingConfig {
+            support_ratio: f64::NAN,
+            ..PackingConfig::default()
+        };
+        let objects = vec![
+            Box3D::new(1, (5.0, 10.0, 5.0), 10.0).unwrap(),
+            Box3D::new(2, (10.0, 10.0, 5.0), 5.0).unwrap(),
+        ];
+
+        let result =
+            pack_objects_with_config(objects, single_blueprint((10.0, 10.0, 10.0), 100.0), config);
+
+        // In the original container, the second box can only fit on top of the half-width base box.
+        // Requiring a second container therefore proves the sanitized support threshold rejected
+        // that otherwise collision-free but insufficiently supported stack.
+        assert_eq!(result.containers.len(), 2);
+        assert_eq!(result.containers[0].placed.len(), 1);
+        assert_eq!(result.containers[1].placed.len(), 1);
+        assert_eq!(result.containers[0].placed[0].object.id, 1);
+        assert_eq!(result.containers[1].placed[0].object.id, 2);
     }
 }
