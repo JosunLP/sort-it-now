@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.3.0] - 2026-03-16
+
+### Added
+
+- Interactive 3D packing UI improvements with OrbitControls, step-by-step animation, live status feedback, keyboard shortcuts, and an unplaced-object panel.
+- Native release packaging for Linux (`.deb`), macOS (`.pkg`), and Windows (`.msix`) alongside the archive bundles and Docker image publishing pipeline.
+- Background update support that can download the latest matching GitHub release asset and verify checksums before installation.
+
+### Changed
+
+- Expanded the packing engine with reusable `Vec3` / `BoundingBox` primitives, optional rotations, and physics-aware stability heuristics for support, balance, and weight layering.
+- Refactored the backend into dedicated configuration, geometry, model, optimizer, API, and update modules while keeping the web frontend served from the Rust application.
+- Updated the project documentation, installation scripts, and frontend/backend copy to the current English release presentation.
+
+### Improved
+
+- Extended CI/release automation with formatting, clippy, tests, CodeQL, Docker publishing, and native installer workflows.
+- Refreshed release documentation to better explain deterministic installs, native packages, Docker usage, and automatic updates.
+
 ## [1.2.0] - 2025-12-14
 
 ### Added
