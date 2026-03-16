@@ -65,14 +65,17 @@ function Normalize-PathEntry {
     return $normalized
 }
 
-if (-not (Test-Path $binaryPath)) {
-    Write-Host "sort-it-now is not installed in $Destination."
-    exit 0
-}
+$binaryPresent = Test-Path $binaryPath
 
 Assert-DestinationWritable -TargetDirectory $Destination
 
-Remove-Item -Path $binaryPath -Force
+if ($binaryPresent) {
+    Remove-Item -Path $binaryPath -Force
+}
+else {
+    Write-Host "sort-it-now executable was not found in $Destination. Continuing with PATH and directory cleanup."
+}
+
 if (Test-Path $readmePath) {
     Remove-Item -Path $readmePath -Force
 }

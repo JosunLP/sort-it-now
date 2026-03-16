@@ -291,18 +291,38 @@ jobs:
           Remove-Item -Path $pfxPath -Force
           Get-FileHash -Path $msixPath -Algorithm SHA256 | Select-Object -ExpandProperty Hash | Out-File -FilePath "$msixPath.sha256" -Encoding ASCII
 
-      - name: Upload artifact
+      - name: Upload archive artifact
         uses: actions/upload-artifact@v4
         with:
           name: sort-it-now-${{ steps.meta.outputs.version }}-${{ matrix.artifact_suffix }}
-          if-no-files-found: ignore
           path: |
             sort-it-now-${{ steps.meta.outputs.version }}-${{ matrix.artifact_suffix }}.${{ matrix.archive_extension }}
             sort-it-now-${{ steps.meta.outputs.version }}-${{ matrix.artifact_suffix }}.${{ matrix.archive_extension }}.sha256
+
+      - name: Upload Linux installer artifact
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sort-it-now-${{ steps.meta.outputs.version }}-${{ matrix.artifact_suffix }}-native
+          path: |
             sort-it-now-${{ steps.meta.outputs.version }}-${{ matrix.artifact_suffix }}.deb
             sort-it-now-${{ steps.meta.outputs.version }}-${{ matrix.artifact_suffix }}.deb.sha256
+
+      - name: Upload macOS installer artifact
+        if: startsWith(matrix.os, 'macos')
+        uses: actions/upload-artifact@v4
+        with:
+          name: sort-it-now-${{ steps.meta.outputs.version }}-${{ matrix.artifact_suffix }}-native
+          path: |
             sort-it-now-${{ steps.meta.outputs.version }}-${{ matrix.artifact_suffix }}.pkg
             sort-it-now-${{ steps.meta.outputs.version }}-${{ matrix.artifact_suffix }}.pkg.sha256
+
+      - name: Upload Windows installer artifact
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sort-it-now-${{ steps.meta.outputs.version }}-${{ matrix.artifact_suffix }}-native
+          path: |
             sort-it-now-${{ steps.meta.outputs.version }}-${{ matrix.artifact_suffix }}.msix
             sort-it-now-${{ steps.meta.outputs.version }}-${{ matrix.artifact_suffix }}.msix.sha256
             sort-it-now-${{ steps.meta.outputs.version }}-${{ matrix.artifact_suffix }}.cer
