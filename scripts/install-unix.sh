@@ -9,6 +9,7 @@ REPO="${SORT_IT_NOW_GITHUB_REPO:-sort-it-now}"
 REQUESTED_VERSION="${SORT_IT_NOW_VERSION:-latest}"
 SCRIPT_SOURCE="${BASH_SOURCE[0]:-}"
 SCRIPT_DIR="$PWD"
+DOWNLOAD_TMP_DIR=""
 
 if [[ -n "$SCRIPT_SOURCE" && -e "$SCRIPT_SOURCE" ]]; then
   SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)"
@@ -117,7 +118,8 @@ download_and_install_latest_release() {
   fi
 
   tmp_dir="$(mktemp -d)"
-  trap 'rm -rf "$tmp_dir"' EXIT
+  DOWNLOAD_TMP_DIR="$tmp_dir"
+  trap 'rm -rf -- "$DOWNLOAD_TMP_DIR"' EXIT
   archive_path="$tmp_dir/release.tar.gz"
   checksum_path="$tmp_dir/release.tar.gz.sha256"
 

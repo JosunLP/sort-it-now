@@ -1447,6 +1447,36 @@ function startLivePacking() {
       const decoder = new TextDecoder('utf-8');
       let buffer = '';
       let sawFinishedEvent = false;
+      const dispatchSseFrame = (frame) => {
+        const dataLine = extractSseEventData(frame);
+        if (!dataLine) return;
+        try {
+          const evt = JSON.parse(dataLine);
+          if (evt.type === 'Finished') {
+            sawFinishedEvent = true;
+          }
+          // A newer run can supersede this stream after `reader.read()` but before we dispatch
+          // the parsed event, so guard once more immediately before mutating the live UI state.
+          if (streamSessionId !== liveStreamSessionId) {
+            console.debug('Ignoring event from superseded live stream.');
+            return;
+          }
+          handleLiveEvent(evt);
+        } catch (e) {
+          console.warn('SSE parse warn:', e, dataLine);
+        }
+      };
+      const processBufferedFrames = (shouldFlushTrailingFrame = false) => {
+        const parts = buffer.split(/(?:\r\n|\n)(?:\r\n|\n)/);
+        buffer = parts.pop() || '';
+        for (const part of parts) {
+          dispatchSseFrame(part);
+        }
+        if (shouldFlushTrailingFrame && buffer.trim()) {
+          dispatchSseFrame(buffer);
+          buffer = '';
+        }
+      };
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
@@ -1457,28 +1487,11 @@ function startLivePacking() {
         }
         buffer += decoder.decode(value, { stream: true });
         // SSE frames are separated by blank lines and may contain comment/field lines.
-        let parts = buffer.split(/(?:\r\n|\n)(?:\r\n|\n)/);
-        buffer = parts.pop() || '';
-        for (const part of parts) {
-          const dataLine = extractSseEventData(part);
-          if (!dataLine) continue;
-          try {
-            const evt = JSON.parse(dataLine);
-            if (evt.type === 'Finished') {
-              sawFinishedEvent = true;
-            }
-            // A newer run can supersede this stream after `reader.read()` but before we dispatch
-            // the parsed event, so guard once more immediately before mutating the live UI state.
-            if (streamSessionId !== liveStreamSessionId) {
-              console.debug('Ignoring event from superseded live stream.');
-              return;
-            }
-            handleLiveEvent(evt);
-          } catch (e) {
-            console.warn('SSE parse warn:', e, dataLine);
-          }
-        }
+        processBufferedFrames();
       }
+      // Flush any trailing UTF-8 bytes the streaming decoder kept buffered across chunk boundaries.
+      buffer += decoder.decode();
+      processBufferedFrames(true);
       if (!sawFinishedEvent && streamSessionId === liveStreamSessionId) {
         handleLiveEvent({ type: 'Finished' });
       }
