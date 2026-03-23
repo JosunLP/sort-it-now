@@ -11,8 +11,8 @@
 //!
 //! The packing algorithm works in the following phases:
 //!
-//! 1. **Sorting**: Objects are sorted by `weight × volume` descending
-//!    (heavy and large objects first for better stability)
+//! 1. **Sorting**: Objects are sorted by weight, occupied volume, and
+//!    physics-aware load indicators (heavy/large/high-pressure objects first)
 //!
 //! 2. **Clustering**: The `FootprintClusterStrategy` groups objects with similar
 //!    footprints to reduce fragmentation
@@ -23,7 +23,9 @@
 //! 4. **Position Search**: For each object, the best position is searched:
 //!    - Iterate over all Z-layers (floor + tops of placed objects)
 //!    - Grid search on X/Y axis with configurable step size
-//!    - Evaluation by `PlacementScore { z, y, x, balance }`
+//!    - Evaluation by `PlacementScore { z, instability, support_ratio,
+//!      support_centroid_offset_ratio, support_contact_count, y, x,
+//!      balance_shift, balance }`
 //!
 //! 5. **Stability Checks**: Each candidate position must pass:
 //!    - No collision with existing objects
@@ -58,6 +60,7 @@ use std::cmp::Ordering;
 
 use crate::geometry::{intersects, overlap_1d, point_inside};
 use crate::model::{Box3D, Container, ContainerBlueprint, PlacedBox};
+use crate::types::Dimensional;
 use utoipa::ToSchema;
 
 /// Configuration for the packing algorithm.
@@ -94,6 +97,26 @@ impl PackingConfig {
     pub fn builder() -> PackingConfigBuilder {
         PackingConfigBuilder::default()
     }
+
+    /// Normalizes numerically invalid runtime inputs for the packing pipeline.
+    ///
+    /// `PackingConfig` remains publicly constructible, so packing re-sanitizes the active
+    /// config before numeric thresholds are derived from user-provided values.
+    fn sanitized(mut self) -> Self {
+        self.grid_step = sanitize_positive_finite(self.grid_step, Self::DEFAULT_GRID_STEP);
+        self.support_ratio = sanitize_ratio(self.support_ratio, Self::DEFAULT_SUPPORT_RATIO);
+        self.height_epsilon =
+            sanitize_nonnegative_finite(self.height_epsilon, Self::DEFAULT_HEIGHT_EPSILON);
+        self.general_epsilon =
+            sanitize_nonnegative_finite(self.general_epsilon, Self::DEFAULT_GENERAL_EPSILON);
+        self.balance_limit_ratio =
+            sanitize_ratio(self.balance_limit_ratio, Self::DEFAULT_BALANCE_LIMIT_RATIO);
+        self.footprint_cluster_tolerance = sanitize_nonnegative_finite(
+            self.footprint_cluster_tolerance,
+            Self::DEFAULT_FOOTPRINT_CLUSTER_TOLERANCE,
+        );
+        self
+    }
 }
 
 impl Default for PackingConfig {
@@ -107,6 +130,34 @@ impl Default for PackingConfig {
             footprint_cluster_tolerance: Self::DEFAULT_FOOTPRINT_CLUSTER_TOLERANCE,
             allow_item_rotation: Self::DEFAULT_ALLOW_ITEM_ROTATION,
         }
+    }
+}
+
+fn sanitize_positive_finite(value: f64, fallback: f64) -> f64 {
+    if value.is_finite() && value > 0.0 {
+        value
+    } else {
+        fallback
+    }
+}
+
+fn sanitize_nonnegative_finite(value: f64, fallback: f64) -> f64 {
+    if value.is_finite() && value >= 0.0 {
+        value
+    } else {
+        fallback
+    }
+}
+
+/// Accepts ratio-like values only inside the supported `[0.0, 1.0]` interval.
+///
+/// Non-finite values fall back to the supplied default so downstream numeric thresholds remain
+/// comparable.
+fn sanitize_ratio(value: f64, fallback: f64) -> f64 {
+    if value.is_finite() && (0.0..=1.0).contains(&value) {
+        value
+    } else {
+        fallback
     }
 }
 
@@ -260,6 +311,71 @@ impl ObjectCluster {
     fn into_members(self) -> Vec<Box3D> {
         self.members
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ObjectOrderingScore {
+    weight: f64,
+    volume: f64,
+    floor_load: f64,
+    density: f64,
+    slenderness: f64,
+}
+
+fn object_ordering_score(object: &Box3D, config: &PackingConfig) -> ObjectOrderingScore {
+    let dims = object.dimensions();
+    let (width, depth, height) = (dims.x, dims.y, dims.z);
+    let volume = object.volume();
+    // `PackingConfig` is publicly constructible, so keep a minimal runtime floor even when
+    // callers bypass the builder/defaults and provide a zero or extremely small epsilon.
+    let epsilon = config.general_epsilon.max(f64::EPSILON);
+    let min_base_area = epsilon.powi(2);
+    let min_volume = epsilon.powi(3);
+    let base_area = object.base_area().max(min_base_area);
+    let min_base_edge = width.min(depth).max(epsilon);
+
+    ObjectOrderingScore {
+        weight: object.weight,
+        volume,
+        floor_load: object.weight / base_area,
+        density: object.weight / volume.max(min_volume),
+        slenderness: height / min_base_edge,
+    }
+}
+
+fn compare_objects_for_packing(a: &Box3D, b: &Box3D, config: &PackingConfig) -> Ordering {
+    let a_score = object_ordering_score(a, config);
+    let b_score = object_ordering_score(b, config);
+
+    b_score
+        .weight
+        .partial_cmp(&a_score.weight)
+        .unwrap_or(Ordering::Equal)
+        .then_with(|| {
+            b_score
+                .volume
+                .partial_cmp(&a_score.volume)
+                .unwrap_or(Ordering::Equal)
+        })
+        .then_with(|| {
+            b_score
+                .floor_load
+                .partial_cmp(&a_score.floor_load)
+                .unwrap_or(Ordering::Equal)
+        })
+        .then_with(|| {
+            b_score
+                .density
+                .partial_cmp(&a_score.density)
+                .unwrap_or(Ordering::Equal)
+        })
+        .then_with(|| {
+            b_score
+                .slenderness
+                .partial_cmp(&a_score.slenderness)
+                .unwrap_or(Ordering::Equal)
+        })
+        .then_with(|| a.id.cmp(&b.id))
 }
 
 fn orientations_for(object: &Box3D, allow_rotation: bool) -> Vec<Box3D> {
@@ -596,6 +712,8 @@ pub fn pack_objects_with_progress(
         };
     }
 
+    let config = config.sanitized();
+
     let mut templates = container_templates;
     templates.sort_by(|a, b| {
         a.volume()
@@ -608,19 +726,10 @@ pub fn pack_objects_with_progress(
             })
     });
 
-    // Sorting: Heavy and large objects first (stability principle)
+    // Sorting: heavy and large objects first, then refine ties with
+    // pressure/density/slenderness to keep physically demanding items low.
     let mut objects = objects;
-    objects.sort_by(|a, b| {
-        b.weight
-            .partial_cmp(&a.weight)
-            .unwrap_or(Ordering::Equal)
-            .then_with(|| {
-                b.volume()
-                    .partial_cmp(&a.volume())
-                    .unwrap_or(Ordering::Equal)
-            })
-            .then_with(|| a.id.cmp(&b.id))
-    });
+    objects.sort_by(|a, b| compare_objects_for_packing(a, b, &config));
 
     let cluster_strategy = FootprintClusterStrategy::new(config.footprint_cluster_tolerance);
     objects = cluster_strategy.reorder(objects);
@@ -636,11 +745,11 @@ pub fn pack_objects_with_progress(
         for oriented in &orientations {
             // Versuche, in bestehenden Containern zu platzieren
             for idx in 0..containers.len() {
-                if !containers[idx].can_fit(&oriented) {
+                if !containers[idx].can_fit(oriented) {
                     continue;
                 }
 
-                if let Some(position) = find_stable_position(&oriented, &containers[idx], &config) {
+                if let Some(position) = find_stable_position(oriented, &containers[idx], &config) {
                     containers[idx].placed.push(PlacedBox {
                         object: oriented.clone(),
                         position,
@@ -680,12 +789,12 @@ pub fn pack_objects_with_progress(
 
             // Keine bestehenden Container geeignet, versuche neue Container
             for template in &templates {
-                if !template.can_fit(&oriented) {
+                if !template.can_fit(oriented) {
                     continue;
                 }
 
                 let mut new_container = template.instantiate();
-                if let Some(position) = find_stable_position(&oriented, &new_container, &config) {
+                if let Some(position) = find_stable_position(oriented, &new_container, &config) {
                     let new_id = containers.len() + 1;
                     let dims = new_container.dims;
                     let max_weight = new_container.max_weight;
@@ -804,6 +913,7 @@ fn find_stable_position(
     z_layers.dedup_by(|a, b| (*a - *b).abs() < config.height_epsilon);
 
     let balance_limit = calculate_balance_limit(cont, config);
+    let current_balance = calculate_current_balance_offset(cont);
 
     let mut best_in_limit: Option<((f64, f64, f64), PlacementScore)> = None;
     let mut best_any: Option<((f64, f64, f64), PlacementScore)> = None;
@@ -834,21 +944,35 @@ fn find_stable_position(
                 }
 
                 // For placement above the floor: Check stability
+                let support_analysis = analyze_support_surface(&candidate, cont, config);
                 if z > 0.0 {
-                    if !has_sufficient_support(&candidate, cont, config) {
+                    let required_support = (config.support_ratio - config.general_epsilon).max(0.0);
+                    if support_analysis.support_ratio < required_support {
                         continue;
                     }
-                    if !supports_weight_correctly(&candidate, cont, config) {
+                    if !support_analysis.supports_weight {
                         continue;
                     }
-                    if !is_center_supported(&candidate, cont, config) {
+                    if !support_analysis.center_supported {
                         // Prevents overhangs where the center of gravity is not supported
                         continue;
                     }
                 }
 
+                let stability =
+                    simulate_static_stability_from_analysis(&candidate, config, support_analysis);
                 let balance = calculate_balance_after(cont, &candidate);
-                let score = PlacementScore { z, y, x, balance };
+                let score = PlacementScore {
+                    z,
+                    instability: stability.instability_score,
+                    support_ratio: stability.support_ratio,
+                    support_centroid_offset_ratio: stability.support_centroid_offset_ratio,
+                    support_contact_count: stability.support_contact_count,
+                    y,
+                    x,
+                    balance_shift: (balance - current_balance).abs(),
+                    balance,
+                };
 
                 update_best(&mut best_any, (x, y, z), score, config);
 
@@ -899,122 +1023,17 @@ fn axis_positions(container_len: f64, object_len: f64, step: f64, epsilon: f64) 
     positions
 }
 
-/// Checks if an object is correctly supported by weight.
-///
-/// Ensures that no heavier objects rest on lighter ones.
+/// Calculates the ratio of an object's base area that is supported.
 ///
 /// # Parameters
 /// * `b` - The placed object to check
 /// * `cont` - The container
 /// * `config` - Configuration parameters
-fn supports_weight_correctly(b: &PlacedBox, cont: &Container, config: &PackingConfig) -> bool {
-    if b.position.2 <= config.height_epsilon {
-        return true;
-    }
-
-    let (bx, by, bz) = b.position;
-    let (bw, bd, _) = b.object.dims;
-    let mut has_support = false;
-
-    for p in &cont.placed {
-        let top_z = p.position.2 + p.object.dims.2;
-        if (bz - top_z).abs() > config.height_epsilon {
-            continue;
-        }
-
-        let over_x = overlap_1d(bx, bx + bw, p.position.0, p.position.0 + p.object.dims.0);
-        let over_y = overlap_1d(by, by + bd, p.position.1, p.position.1 + p.object.dims.1);
-
-        if over_x <= 0.0 || over_y <= 0.0 {
-            continue;
-        }
-
-        has_support = true;
-
-        // Heavier object must not rest on lighter one
-        if p.object.weight + config.general_epsilon < b.object.weight {
-            return false;
-        }
-    }
-
-    has_support
-}
-
-/// Checks if an object is sufficiently supported.
 ///
-/// Calculates the fraction of the base area resting on other objects.
-///
-/// # Parameters
-/// * `b` - The placed object to check
-/// * `cont` - The container
-/// * `config` - Configuration parameters
+/// # Returns
+/// A value in the range `0.0..=1.0`, where `1.0` means the full base area is supported.
 fn support_ratio_of(b: &PlacedBox, cont: &Container, config: &PackingConfig) -> f64 {
-    if b.position.2 <= config.height_epsilon {
-        return 1.0;
-    }
-
-    let (bx, by, bz) = b.position;
-    let (bw, bd, _) = b.object.dims;
-    let base_area = bw * bd;
-    let min_support_area = config.general_epsilon * config.general_epsilon;
-    if base_area <= min_support_area {
-        return 0.0;
-    }
-
-    let mut support_area = 0.0;
-
-    for p in &cont.placed {
-        let support_surface_z = p.position.2 + p.object.dims.2;
-        if (bz - support_surface_z).abs() > config.height_epsilon {
-            continue;
-        }
-
-        let over_x = overlap_1d(bx, bx + bw, p.position.0, p.position.0 + p.object.dims.0);
-        let over_y = overlap_1d(by, by + bd, p.position.1, p.position.1 + p.object.dims.1);
-
-        if over_x > 0.0 && over_y > 0.0 {
-            support_area += over_x * over_y;
-        }
-    }
-
-    (support_area / base_area).clamp(0.0, 1.0)
-}
-
-fn has_sufficient_support(b: &PlacedBox, cont: &Container, config: &PackingConfig) -> bool {
-    if b.position.2 <= config.height_epsilon {
-        return true;
-    }
-
-    let required_support = (config.support_ratio - config.general_epsilon).max(0.0);
-    support_ratio_of(b, cont, config) >= required_support
-}
-
-/// Checks if the center of gravity of the object (XY projection) is supported by the bearing surface.
-///
-/// A simple, robust stability heuristic: There must be at least one supporting box directly under
-/// the projected center point (same Z-level, XY contains center point).
-fn is_center_supported(b: &PlacedBox, cont: &Container, config: &PackingConfig) -> bool {
-    if b.position.2 <= config.height_epsilon {
-        return true;
-    }
-
-    let center_xy = (
-        b.position.0 + b.object.dims.0 / 2.0,
-        b.position.1 + b.object.dims.1 / 2.0,
-        b.position.2,
-    );
-
-    for p in &cont.placed {
-        let top_z = p.position.2 + p.object.dims.2;
-        if (b.position.2 - top_z).abs() > config.height_epsilon {
-            continue;
-        }
-
-        if point_inside(center_xy, p) {
-            return true;
-        }
-    }
-    false
+    analyze_support_surface(b, cont, config).support_ratio
 }
 
 /// Calculates the balance/center of gravity deviation after adding an object.
@@ -1049,14 +1068,169 @@ fn calculate_balance_after(cont: &Container, new_box: &PlacedBox) -> f64 {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+struct StaticStabilityMetrics {
+    support_ratio: f64,
+    support_contact_count: usize,
+    support_centroid_offset_ratio: f64,
+    instability_score: f64,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct SupportAnalysis {
+    support_ratio: f64,
+    support_contact_count: usize,
+    support_centroid_offset_ratio: f64,
+    supports_weight: bool,
+    center_supported: bool,
+}
+
+const SUPPORT_DEFICIT_WEIGHT: f64 = 4.0;
+const SINGLE_SUPPORT_CONTACT_PENALTY: f64 = 0.15;
+
+fn analyze_support_surface(
+    b: &PlacedBox,
+    cont: &Container,
+    config: &PackingConfig,
+) -> SupportAnalysis {
+    if b.position.2 <= config.height_epsilon {
+        return SupportAnalysis {
+            support_ratio: 1.0,
+            support_contact_count: 0,
+            support_centroid_offset_ratio: 0.0,
+            supports_weight: true,
+            center_supported: true,
+        };
+    }
+
+    let (bx, by, bz) = b.position;
+    let (bw, bd, _) = b.object.dims;
+    let min_base_area = config.general_epsilon.max(f64::EPSILON).powi(2);
+    let base_area = b.base_area().max(min_base_area);
+    let center_xy = (bx + bw / 2.0, by + bd / 2.0, bz);
+    let mut support_area = 0.0;
+    let mut support_center_x = 0.0;
+    let mut support_center_y = 0.0;
+    let mut support_contacts = 0usize;
+    let mut supports_weight = true;
+    let mut center_supported = false;
+
+    for p in &cont.placed {
+        let support_surface_z = p.position.2 + p.object.dims.2;
+        if (bz - support_surface_z).abs() > config.height_epsilon {
+            continue;
+        }
+
+        let over_x = overlap_1d(bx, bx + bw, p.position.0, p.position.0 + p.object.dims.0);
+        let over_y = overlap_1d(by, by + bd, p.position.1, p.position.1 + p.object.dims.1);
+        if over_x <= config.general_epsilon || over_y <= config.general_epsilon {
+            continue;
+        }
+
+        let overlap_area = over_x * over_y;
+        let overlap_center_x = bx.max(p.position.0) + over_x / 2.0;
+        let overlap_center_y = by.max(p.position.1) + over_y / 2.0;
+
+        support_area += overlap_area;
+        support_center_x += overlap_center_x * overlap_area;
+        support_center_y += overlap_center_y * overlap_area;
+        support_contacts += 1;
+
+        if p.object.weight + config.general_epsilon < b.object.weight {
+            supports_weight = false;
+        }
+
+        if point_inside(center_xy, p) {
+            center_supported = true;
+        }
+    }
+
+    let support_ratio = (support_area / base_area).clamp(0.0, 1.0);
+    let min_base_edge = bw.min(bd).max(config.general_epsilon);
+    let support_centroid_offset_ratio = if support_area >= min_base_area {
+        let centroid = (
+            support_center_x / support_area,
+            support_center_y / support_area,
+        );
+        let base_radius = (min_base_edge / 2.0).max(config.general_epsilon);
+        distance_2d((center_xy.0, center_xy.1), centroid) / base_radius
+    } else {
+        1.0
+    };
+
+    SupportAnalysis {
+        support_ratio,
+        support_contact_count: support_contacts,
+        support_centroid_offset_ratio,
+        // Without any supporting contacts, the candidate is inherently unsupported for load transfer.
+        supports_weight: support_contacts > 0 && supports_weight,
+        center_supported,
+    }
+}
+
+fn simulate_static_stability_from_analysis(
+    b: &PlacedBox,
+    config: &PackingConfig,
+    support: SupportAnalysis,
+) -> StaticStabilityMetrics {
+    if b.position.2 <= config.height_epsilon {
+        return StaticStabilityMetrics {
+            support_ratio: support.support_ratio,
+            support_contact_count: support.support_contact_count,
+            support_centroid_offset_ratio: support.support_centroid_offset_ratio,
+            instability_score: 0.0,
+        };
+    }
+
+    let (_, _, bh) = b.object.dims;
+    let min_base_edge = b
+        .object
+        .dims
+        .0
+        .min(b.object.dims.1)
+        .max(config.general_epsilon);
+    let slenderness = bh / min_base_edge;
+    let contact_penalty = if support.support_contact_count <= 1 {
+        SINGLE_SUPPORT_CONTACT_PENALTY
+    } else {
+        0.0
+    };
+    let instability_score = (1.0 - support.support_ratio) * SUPPORT_DEFICIT_WEIGHT
+        + support.support_centroid_offset_ratio * (1.0 + slenderness)
+        + contact_penalty;
+
+    StaticStabilityMetrics {
+        support_ratio: support.support_ratio,
+        support_contact_count: support.support_contact_count,
+        support_centroid_offset_ratio: support.support_centroid_offset_ratio,
+        instability_score,
+    }
+}
+
+// Kept as a convenience function for tests and future call sites that need static
+// stability metrics without manually threading precomputed support analysis.
+#[allow(dead_code)]
+fn simulate_static_stability(
+    b: &PlacedBox,
+    cont: &Container,
+    config: &PackingConfig,
+) -> StaticStabilityMetrics {
+    simulate_static_stability_from_analysis(b, config, analyze_support_surface(b, cont, config))
+}
+
 /// Evaluation of a placement position.
 ///
-/// Lower values are better (z first, then y, then x, then balance).
+/// Lower values are better (z first, then local instability, then y/x, then balance).
 #[derive(Clone, Copy)]
 struct PlacementScore {
     z: f64,
+    instability: f64,
+    support_ratio: f64,
+    support_centroid_offset_ratio: f64,
+    support_contact_count: usize,
     y: f64,
     x: f64,
+    balance_shift: f64,
     balance: f64,
 }
 
@@ -1087,7 +1261,9 @@ fn update_best(
 
 /// Compares two placement scores.
 ///
-/// Priority: z (low) > y (low) > x (low) > balance (low)
+/// Priority: z (low) > local instability (low) > support ratio (high)
+/// > center-offset ratio (low) > support contacts (high) > y (low)
+/// > x (low) > balance shift (low) > balance (low)
 ///
 /// # Parameters
 /// * `new` - New score
@@ -1100,6 +1276,41 @@ fn is_better_score(new: PlacementScore, current: PlacementScore, config: &Packin
         Ordering::Equal => {}
     }
 
+    match compare_with_epsilon(new.instability, current.instability, config.general_epsilon) {
+        Ordering::Less => return true,
+        Ordering::Greater => return false,
+        Ordering::Equal => {}
+    }
+
+    match compare_with_epsilon(
+        current.support_ratio,
+        new.support_ratio,
+        config.general_epsilon,
+    ) {
+        Ordering::Less => return true,
+        Ordering::Greater => return false,
+        Ordering::Equal => {}
+    }
+
+    match compare_with_epsilon(
+        new.support_centroid_offset_ratio,
+        current.support_centroid_offset_ratio,
+        config.general_epsilon,
+    ) {
+        Ordering::Less => return true,
+        Ordering::Greater => return false,
+        Ordering::Equal => {}
+    }
+
+    match current
+        .support_contact_count
+        .cmp(&new.support_contact_count)
+    {
+        Ordering::Less => return true,
+        Ordering::Greater => return false,
+        Ordering::Equal => {}
+    }
+
     match compare_with_epsilon(new.y, current.y, config.general_epsilon) {
         Ordering::Less => return true,
         Ordering::Greater => return false,
@@ -1107,6 +1318,16 @@ fn is_better_score(new: PlacementScore, current: PlacementScore, config: &Packin
     }
 
     match compare_with_epsilon(new.x, current.x, config.general_epsilon) {
+        Ordering::Less => return true,
+        Ordering::Greater => return false,
+        Ordering::Equal => {}
+    }
+
+    match compare_with_epsilon(
+        new.balance_shift,
+        current.balance_shift,
+        config.general_epsilon,
+    ) {
         Ordering::Less => return true,
         Ordering::Greater => return false,
         Ordering::Equal => {}
@@ -1815,5 +2036,198 @@ mod tests {
         );
 
         assert!(diagnostics_events >= 1);
+    }
+
+    #[test]
+    fn physics_aware_object_ordering_breaks_volume_ties_with_floor_load() {
+        let higher_floor_load = Box3D {
+            id: 1,
+            dims: (5.0, 5.0, 4.0),
+            weight: 10.0,
+        };
+        let lower_floor_load = Box3D {
+            id: 2,
+            dims: (10.0, 10.0, 1.0),
+            weight: 10.0,
+        };
+
+        let config = PackingConfig::default();
+        let ordering = compare_objects_for_packing(&higher_floor_load, &lower_floor_load, &config);
+        assert_eq!(ordering, Ordering::Less);
+    }
+
+    #[test]
+    fn object_ordering_score_scales_epsilon_by_dimension_units() {
+        let config = PackingConfig::builder().general_epsilon(0.1).build();
+        let object = Box3D {
+            id: 1,
+            dims: (0.2, 0.2, 0.2),
+            weight: 10.0,
+        };
+
+        let score = object_ordering_score(&object, &config);
+
+        assert!((score.floor_load - 250.0).abs() <= 1e-9);
+        assert!((score.density - 1250.0).abs() <= 1e-9);
+    }
+
+    #[test]
+    fn simulated_stability_penalizes_offset_support() {
+        let config = PackingConfig::default();
+        let mut container = Container::new((20.0, 20.0, 30.0), 200.0).unwrap();
+
+        container.placed.push(PlacedBox {
+            object: Box3D {
+                id: 1,
+                dims: (10.0, 10.0, 10.0),
+                weight: 20.0,
+            },
+            position: (0.0, 0.0, 0.0),
+        });
+
+        let centered = PlacedBox {
+            object: Box3D {
+                id: 2,
+                dims: (10.0, 10.0, 8.0),
+                weight: 8.0,
+            },
+            position: (0.0, 0.0, 10.0),
+        };
+        let offset = PlacedBox {
+            object: centered.object.clone(),
+            position: (4.0, 0.0, 10.0),
+        };
+
+        let centered_metrics = simulate_static_stability(&centered, &container, &config);
+        let offset_metrics = simulate_static_stability(&offset, &container, &config);
+
+        assert!(centered_metrics.support_ratio > offset_metrics.support_ratio);
+        assert_eq!(centered_metrics.support_contact_count, 1);
+        assert_eq!(offset_metrics.support_contact_count, 1);
+        assert!(
+            centered_metrics.support_centroid_offset_ratio
+                < offset_metrics.support_centroid_offset_ratio
+        );
+        assert!(centered_metrics.instability_score < offset_metrics.instability_score);
+    }
+
+    #[test]
+    fn support_analysis_uses_area_scaled_epsilon_floor() {
+        let config = PackingConfig::builder().general_epsilon(0.1).build();
+        let mut container = Container::new((5.0, 5.0, 5.0), 100.0).unwrap();
+        container.placed.push(PlacedBox {
+            object: Box3D {
+                id: 1,
+                dims: (0.2, 0.2, 0.2),
+                weight: 5.0,
+            },
+            position: (0.0, 0.0, 0.0),
+        });
+
+        let supported = PlacedBox {
+            object: Box3D {
+                id: 2,
+                dims: (0.2, 0.2, 0.2),
+                weight: 4.0,
+            },
+            position: (0.0, 0.0, 0.2),
+        };
+
+        let analysis = analyze_support_surface(&supported, &container, &config);
+
+        assert!((analysis.support_ratio - 1.0).abs() <= 1e-9);
+    }
+
+    #[test]
+    fn support_centroid_offset_ratio_uses_area_scaled_threshold() {
+        let config = PackingConfig::builder().general_epsilon(0.1).build();
+        let mut container = Container::new((5.0, 5.0, 5.0), 100.0).unwrap();
+        container.placed.push(PlacedBox {
+            object: Box3D {
+                id: 1,
+                dims: (0.2, 0.2, 0.2),
+                weight: 5.0,
+            },
+            position: (0.0, 0.0, 0.0),
+        });
+
+        let offset = PlacedBox {
+            object: Box3D {
+                id: 2,
+                dims: (0.2, 0.2, 0.2),
+                weight: 4.0,
+            },
+            position: (0.05, 0.0, 0.2),
+        };
+
+        let analysis = analyze_support_surface(&offset, &container, &config);
+
+        assert!((analysis.support_ratio - 0.75).abs() <= 1e-9);
+        assert!(analysis.support_centroid_offset_ratio > 0.0);
+        assert!(analysis.support_centroid_offset_ratio < 1.0);
+    }
+
+    #[test]
+    fn packing_config_sanitizes_invalid_numeric_values() {
+        let config = PackingConfig {
+            grid_step: 0.0,
+            support_ratio: -0.5,
+            height_epsilon: -1.0,
+            general_epsilon: f64::NAN,
+            balance_limit_ratio: 2.0,
+            footprint_cluster_tolerance: -0.5,
+            allow_item_rotation: true,
+        };
+
+        let sanitized = config.sanitized();
+
+        assert_eq!(sanitized.grid_step, PackingConfig::DEFAULT_GRID_STEP);
+        // Ratio-like fields fall back to safe defaults when callers provide out-of-range values.
+        assert_eq!(
+            sanitized.support_ratio,
+            PackingConfig::DEFAULT_SUPPORT_RATIO
+        );
+        assert_eq!(
+            sanitized.height_epsilon,
+            PackingConfig::DEFAULT_HEIGHT_EPSILON
+        );
+        assert_eq!(
+            sanitized.general_epsilon,
+            PackingConfig::DEFAULT_GENERAL_EPSILON
+        );
+        // Balance is expressed as a ratio of the diagonal, so invalid values are reset as well.
+        assert_eq!(
+            sanitized.balance_limit_ratio,
+            PackingConfig::DEFAULT_BALANCE_LIMIT_RATIO
+        );
+        assert_eq!(
+            sanitized.footprint_cluster_tolerance,
+            PackingConfig::DEFAULT_FOOTPRINT_CLUSTER_TOLERANCE
+        );
+        assert!(sanitized.allow_item_rotation);
+    }
+
+    #[test]
+    fn packing_uses_sanitized_support_ratio_thresholds() {
+        let config = PackingConfig {
+            support_ratio: f64::NAN,
+            ..PackingConfig::default()
+        };
+        let objects = vec![
+            Box3D::new(1, (5.0, 10.0, 5.0), 10.0).unwrap(),
+            Box3D::new(2, (10.0, 10.0, 5.0), 5.0).unwrap(),
+        ];
+
+        let result =
+            pack_objects_with_config(objects, single_blueprint((10.0, 10.0, 10.0), 100.0), config);
+
+        // In the original container, the second box can only fit on top of the half-width base box.
+        // Requiring a second container therefore proves the sanitized support threshold rejected
+        // that otherwise collision-free but insufficiently supported stack.
+        assert_eq!(result.containers.len(), 2);
+        assert_eq!(result.containers[0].placed.len(), 1);
+        assert_eq!(result.containers[1].placed.len(), 1);
+        assert_eq!(result.containers[0].placed[0].object.id, 1);
+        assert_eq!(result.containers[1].placed[0].object.id, 2);
     }
 }
