@@ -33,7 +33,7 @@ jobs:
             artifact_suffix: macos-x86_64
             archive_extension: tar.gz
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -177,6 +177,11 @@ jobs:
           EXT: ${{ matrix.archive_extension }}
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          if ($PSVersionTable.PSVersion.Major -ge 7) {
+            $PSNativeCommandUseErrorActionPreference = $true
+          }
+
           $bundleDir = "sort-it-now-$env:VERSION-$env:SUFFIX"
           $archivePath = "$bundleDir.$env:EXT"
           New-Item -ItemType Directory -Force -Path $bundleDir | Out-Null
@@ -221,9 +226,9 @@ jobs:
           <Package
             xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
             xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
-            xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
+            xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
             xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-            IgnorableNamespaces="uap desktop6 rescap">
+            IgnorableNamespaces="uap desktop rescap">
             <Identity Name="JosunLP.SortItNow" Publisher="CN=SortItNow" Version="$env:MSIX_VERSION" ProcessorArchitecture="x64" />
             <Properties>
               <DisplayName>Sort It Now</DisplayName>
@@ -246,7 +251,7 @@ jobs:
                   Square150x150Logo="Assets\Square150x150Logo.png"
                   Square44x44Logo="Assets\Square44x44Logo.png" />
                 <Extensions>
-                  <desktop6:Extension Category="windows.fullTrustProcess" Executable="sort_it_now.exe" />
+                  <desktop:Extension Category="windows.fullTrustProcess" Executable="sort_it_now.exe" />
                 </Extensions>
               </Application>
             </Applications>
@@ -265,8 +270,18 @@ jobs:
 
           $makeAppx = Join-Path $kitBin.FullName "makeappx.exe"
           $signtool = Join-Path $kitBin.FullName "signtool.exe"
+          if (-not (Test-Path $makeAppx)) {
+            throw "Could not locate makeappx.exe in '$($kitBin.FullName)'."
+          }
+          if (-not (Test-Path $signtool)) {
+            throw "Could not locate signtool.exe in '$($kitBin.FullName)'."
+          }
+
           $msixPath = "sort-it-now-$env:VERSION-$env:SUFFIX.msix"
           & $makeAppx pack /d $msixDir /p $msixPath /o
+          if (-not (Test-Path $msixPath)) {
+            throw "MSIX package was not created at '$msixPath'."
+          }
 
           $cert = New-SelfSignedCertificate `
             -Type Custom `
@@ -282,11 +297,12 @@ jobs:
           Export-PfxCertificate -Cert $cert -FilePath $pfxPath -Password $passwordSecure | Out-Null
           Export-Certificate -Cert $cert -FilePath $cerPath | Out-Null
           & $signtool sign /fd SHA256 /f $pfxPath /p $generatedPassword $msixPath
+
           Remove-Item -Path $pfxPath -Force
           Get-FileHash -Path $msixPath -Algorithm SHA256 | Select-Object -ExpandProperty Hash | Out-File -FilePath "$msixPath.sha256" -Encoding ASCII
 
       - name: Upload archive artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: sort-it-now-${{ steps.meta.outputs.version }}-${{ matrix.artifact_suffix }}
           path: |
@@ -295,7 +311,7 @@ jobs:
 
       - name: Upload Linux installer artifact
         if: matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: sort-it-now-${{ steps.meta.outputs.version }}-${{ matrix.artifact_suffix }}-native
           path: |
@@ -304,7 +320,7 @@ jobs:
 
       - name: Upload macOS installer artifact
         if: startsWith(matrix.os, 'macos')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: sort-it-now-${{ steps.meta.outputs.version }}-${{ matrix.artifact_suffix }}-native
           path: |
@@ -313,7 +329,7 @@ jobs:
 
       - name: Upload Windows installer artifact
         if: matrix.os == 'windows-latest'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: sort-it-now-${{ steps.meta.outputs.version }}-${{ matrix.artifact_suffix }}-native
           path: |
@@ -327,7 +343,7 @@ jobs:
     needs: build
     if: startsWith(github.ref, 'refs/tags/')
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           path: dist
 
