@@ -33,7 +33,7 @@ jobs:
             artifact_suffix: macos-x86_64
             archive_extension: tar.gz
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -302,7 +302,7 @@ jobs:
           Get-FileHash -Path $msixPath -Algorithm SHA256 | Select-Object -ExpandProperty Hash | Out-File -FilePath "$msixPath.sha256" -Encoding ASCII
 
       - name: Upload archive artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: sort-it-now-${{ steps.meta.outputs.version }}-${{ matrix.artifact_suffix }}
           path: |
@@ -311,7 +311,7 @@ jobs:
 
       - name: Upload Linux installer artifact
         if: matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: sort-it-now-${{ steps.meta.outputs.version }}-${{ matrix.artifact_suffix }}-native
           path: |
@@ -320,7 +320,7 @@ jobs:
 
       - name: Upload macOS installer artifact
         if: startsWith(matrix.os, 'macos')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: sort-it-now-${{ steps.meta.outputs.version }}-${{ matrix.artifact_suffix }}-native
           path: |
@@ -329,7 +329,7 @@ jobs:
 
       - name: Upload Windows installer artifact
         if: matrix.os == 'windows-latest'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: sort-it-now-${{ steps.meta.outputs.version }}-${{ matrix.artifact_suffix }}-native
           path: |
@@ -343,7 +343,7 @@ jobs:
     needs: build
     if: startsWith(github.ref, 'refs/tags/')
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           path: dist
 
