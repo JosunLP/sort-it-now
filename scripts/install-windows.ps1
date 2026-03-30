@@ -6,8 +6,9 @@ $ErrorActionPreference = "Stop"
 $Owner = if ($env:SORT_IT_NOW_GITHUB_OWNER) { $env:SORT_IT_NOW_GITHUB_OWNER } else { "JosunLP" }
 $Repo = if ($env:SORT_IT_NOW_GITHUB_REPO) { $env:SORT_IT_NOW_GITHUB_REPO } else { "sort-it-now" }
 $RequestedVersion = if ($env:SORT_IT_NOW_VERSION) { $env:SORT_IT_NOW_VERSION } else { "latest" }
-$scriptDir = if ($MyInvocation.MyCommand.Path) { Split-Path -Parent $MyInvocation.MyCommand.Path } else { (Get-Location).Path }
-$binaryPath = Join-Path $scriptDir "sort_it_now.exe"
+$scriptPath = $MyInvocation.MyCommand.Path
+$scriptDir = if ($scriptPath) { Split-Path -Parent $scriptPath } else { $null }
+$binaryPath = if ($scriptDir) { Join-Path $scriptDir "sort_it_now.exe" } else { $null }
 
 function Test-IsAdministrator {
     $currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -202,7 +203,7 @@ function Install-FromRelease {
     }
 }
 
-if (Test-Path $binaryPath) {
+if ($binaryPath -and (Test-Path $binaryPath)) {
     Install-LocalBinary -BinaryPath $binaryPath -TargetDirectory $Destination -ReadmeSource (Join-Path $scriptDir "README.md")
 }
 else {
