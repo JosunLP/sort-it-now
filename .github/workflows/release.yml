@@ -105,8 +105,8 @@ jobs:
           cp target/release/sort_it_now "$BUNDLE_DIR/"
           chmod +x "$BUNDLE_DIR/sort_it_now"
           cp README.md "$BUNDLE_DIR/"
-          cp scripts/install-unix.sh "$BUNDLE_DIR/install.sh"
-          cp scripts/uninstall-unix.sh "$BUNDLE_DIR/uninstall.sh"
+          cp scripts/install.sh "$BUNDLE_DIR/install.sh"
+          cp scripts/uninstall.sh "$BUNDLE_DIR/uninstall.sh"
           chmod +x "$BUNDLE_DIR/install.sh"
           chmod +x "$BUNDLE_DIR/uninstall.sh"
           tar -czf "$ARCHIVE_PATH" "$BUNDLE_DIR"
@@ -187,8 +187,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path $bundleDir | Out-Null
           Copy-Item -Path "target\release\sort_it_now.exe" -Destination (Join-Path $bundleDir "sort_it_now.exe")
           Copy-Item -Path "README.md" -Destination (Join-Path $bundleDir "README.md")
-          Copy-Item -Path "scripts\install-windows.ps1" -Destination (Join-Path $bundleDir "install.ps1")
-          Copy-Item -Path "scripts\uninstall-windows.ps1" -Destination (Join-Path $bundleDir "uninstall.ps1")
+          Copy-Item -Path "scripts\install.ps1" -Destination (Join-Path $bundleDir "install.ps1")
+          Copy-Item -Path "scripts\uninstall.ps1" -Destination (Join-Path $bundleDir "uninstall.ps1")
           Compress-Archive -Path $bundleDir -DestinationPath $archivePath -Force
           Get-FileHash -Path $archivePath -Algorithm SHA256 | Select-Object -ExpandProperty Hash | Out-File -FilePath "$archivePath.sha256" -Encoding ASCII
 

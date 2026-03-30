@@ -96,34 +96,43 @@ The artifacts are uploaded both as workflow artifacts and automatically added to
 
 ### Single-command Installation / Uninstallation
 
-For reproducible installs, prefer a release tag (or commit SHA) instead of the mutable `main` branch.
-Replace every `<version>` placeholder below with the same release tag, including the `v` prefix (for example `v1.3.0`).
-The commands below stream the script directly into the shell / PowerShell, so no temporary script download is required.
-You can additionally set `SORT_IT_NOW_VERSION=<version>` to instruct the install scripts to download that specific release.
+The install scripts automatically detect the operating system and architecture and download the latest release. No version entry or other modifications are required. The commands below stream the script directly into the shell / PowerShell, so no temporary script download is needed.
 
 - Linux / macOS install:
 
   ```bash
-  curl -fsSL https://raw.githubusercontent.com/JosunLP/sort-it-now/<version>/scripts/install-unix.sh | SORT_IT_NOW_VERSION=<version> bash
+  curl -fsSL https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/install.sh | bash
   ```
 
 - Linux / macOS uninstall:
 
   ```bash
-  curl -fsSL https://raw.githubusercontent.com/JosunLP/sort-it-now/<version>/scripts/uninstall-unix.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/uninstall.sh | bash
   ```
 
 - Windows install (PowerShell, run as Administrator for the default destination under `%ProgramFiles%`):
 
   ```powershell
-  $env:SORT_IT_NOW_VERSION="<version>"; irm "https://raw.githubusercontent.com/JosunLP/sort-it-now/<version>/scripts/install-windows.ps1" | iex
+  irm "https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/install.ps1" | iex
   ```
 
 - Windows uninstall (PowerShell):
 
   ```powershell
-  irm "https://raw.githubusercontent.com/JosunLP/sort-it-now/<version>/scripts/uninstall-windows.ps1" | iex
+  irm "https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/uninstall.ps1" | iex
   ```
+
+To install a specific version instead of the latest release, set the environment variable `SORT_IT_NOW_VERSION` to a release tag (for example `v1.3.0`):
+
+```bash
+# Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/install.sh | SORT_IT_NOW_VERSION=v1.3.0 bash
+```
+
+```powershell
+# Windows
+$env:SORT_IT_NOW_VERSION="v1.3.0"; irm "https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/install.ps1" | iex
+```
 
 If you prefer to review the script before execution, you can still download it manually first.
 
