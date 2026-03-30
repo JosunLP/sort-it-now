@@ -113,7 +113,7 @@ You can additionally set `SORT_IT_NOW_VERSION=<version>` to instruct the install
   curl -fsSL https://raw.githubusercontent.com/JosunLP/sort-it-now/<version>/scripts/uninstall-unix.sh | bash
   ```
 
-- Windows install (PowerShell):
+- Windows install (PowerShell, run as Administrator for the default destination under `%ProgramFiles%`):
 
   ```powershell
   $env:SORT_IT_NOW_VERSION="<version>"; irm "https://raw.githubusercontent.com/JosunLP/sort-it-now/<version>/scripts/install-windows.ps1" | iex
@@ -127,7 +127,7 @@ You can additionally set `SORT_IT_NOW_VERSION=<version>` to instruct the install
 
 If you prefer to review the script before execution, you can still download it manually first.
 
-Both installer scripts also continue to work locally from an extracted release bundle. Set `INSTALL_DIR` (Unix) or `-Destination` (PowerShell) to override the default target.
+Both installer scripts also continue to work locally from an extracted release bundle. Set `INSTALL_DIR` (Unix) or `-Destination` (PowerShell, for example `"$env:LOCALAPPDATA\Programs\sort-it-now"` for a per-user install) to override the default target.
 
 ### Archive Installation Scripts
 
