@@ -8,10 +8,10 @@ OWNER="${SORT_IT_NOW_GITHUB_OWNER:-JosunLP}"
 REPO="${SORT_IT_NOW_GITHUB_REPO:-sort-it-now}"
 REQUESTED_VERSION="${SORT_IT_NOW_VERSION:-latest}"
 SCRIPT_SOURCE="${BASH_SOURCE[0]:-}"
-SCRIPT_DIR="$PWD"
+SCRIPT_DIR=""
 DOWNLOAD_TMP_DIR=""
 
-if [[ -n "$SCRIPT_SOURCE" && -e "$SCRIPT_SOURCE" ]]; then
+if [[ -n "$SCRIPT_SOURCE" && -f "$SCRIPT_SOURCE" ]]; then
   SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)"
 fi
 
@@ -155,8 +155,12 @@ download_and_install_latest_release() {
   INSTALL_DIR="$INSTALL_DIR" bash "$bundle_dir/install.sh"
 }
 
-BINARY_PATH="$SCRIPT_DIR/$APP_NAME"
-if [[ -f "$BINARY_PATH" ]]; then
+BINARY_PATH=""
+if [[ -n "$SCRIPT_DIR" ]]; then
+  BINARY_PATH="$SCRIPT_DIR/$APP_NAME"
+fi
+
+if [[ -n "$BINARY_PATH" && -f "$BINARY_PATH" ]]; then
   install_local_binary "$BINARY_PATH"
 else
   download_and_install_latest_release
