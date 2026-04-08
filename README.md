@@ -104,6 +104,8 @@ The install scripts detect supported platforms and download the latest matching 
   curl -fsSL https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/install.sh | bash
   ```
 
+  Requires `bash`, `curl`, and `python3`. The Unix install script uses `python3` to parse GitHub release metadata, so on minimal systems you may need to install `python3` first.
+
 - Linux / macOS uninstall:
 
   ```bash
