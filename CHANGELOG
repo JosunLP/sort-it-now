@@ -42,7 +42,7 @@
   - All Rust source files (8 files)
   - Documentation (README.md, CONCEPT.md, DOCKER_SETUP.md)
   - Copilot instructions (.github/copilot-instructions.md)
-  - Installation scripts (install.sh, install.ps1)
+  - Installation scripts (install.sh, install.ps1, uninstall.sh, uninstall.ps1)
   - Web frontend (index.html, script.js)
 - Updated copilot-instructions.md with comprehensive documentation
 

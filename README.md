@@ -96,7 +96,7 @@ The artifacts are uploaded both as workflow artifacts and automatically added to
 
 ### Single-command Installation / Uninstallation
 
-The install scripts automatically detect the operating system and architecture and download the latest release. No version entry or other modifications are required. The commands below stream the script directly into the shell / PowerShell, so no temporary script download is needed.
+The install scripts detect supported platforms and download the latest matching release. Currently supported targets are Linux (`x86_64`), macOS (`arm64` and `x86_64`), and Windows (`x86_64`). No version entry or other modifications are required. The commands below stream the script directly into the shell / PowerShell, so no temporary script download is needed.
 
 - Linux / macOS install:
 
@@ -125,8 +125,8 @@ The install scripts automatically detect the operating system and architecture a
 To install a specific version instead of the latest release, set the environment variable `SORT_IT_NOW_VERSION` to a release tag (for example `v1.3.0`):
 
 ```bash
-# Linux / macOS
-curl -fsSL https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/install.sh | SORT_IT_NOW_VERSION=v1.3.0 bash
+# Linux / macOS (when installing with sudo, preserve the pinned version variable)
+curl -fsSL https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/install.sh | sudo env SORT_IT_NOW_VERSION=v1.3.0 bash
 ```
 
 ```powershell

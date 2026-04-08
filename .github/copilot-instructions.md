@@ -389,7 +389,7 @@ updateStats(); // Statistics panel with diagnostics
 4. **Download**: Platform-specific asset (tar.gz/zip)
 5. **Verification**: SHA-256 checksum from `.sha256` file
 6. **Installation**: Platform-specific logic:
-   - Linux/macOS: Run `install-unix.sh`
+   - Linux/macOS: Run `install.sh`
    - Windows: Replace binary (or `.new.exe` if locked)
 
 ### Configuration
