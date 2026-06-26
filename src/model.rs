@@ -12,10 +12,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use utoipa::ToSchema;
 
+use crate::packaging::PackagingFill;
 use crate::types::{BoundingBox, Dimensional, EPSILON_GENERAL, Positioned, Vec3, Weighted};
 
 /// Validation error for object data.
+///
+/// The shared `Invalid` prefix is intentional: every variant describes an invalid input category,
+/// which keeps error matching and `Display` output consistent.
 #[derive(Debug, Clone)]
+#[allow(clippy::enum_variant_names)]
 pub enum ValidationError {
     InvalidDimension(String),
     InvalidWeight(String),
@@ -316,7 +321,6 @@ impl Container {
     ///
     /// # Returns
     /// Sum of the volumes of all placed objects
-    #[allow(dead_code)]
     pub fn used_volume(&self) -> f64 {
         self.placed.iter().map(|b| b.object.volume()).sum()
     }
@@ -325,7 +329,6 @@ impl Container {
     ///
     /// # Returns
     /// Volume of the container
-    #[allow(dead_code)]
     pub fn total_volume(&self) -> f64 {
         let (w, d, h) = self.dims;
         w * d * h
@@ -342,6 +345,26 @@ impl Container {
             return 0.0;
         }
         (self.used_volume() / total) * 100.0
+    }
+
+    /// Calculates the empty (void) volume that must be filled with packaging material.
+    ///
+    /// This is the interior volume of the container that is not occupied by any packed object.
+    /// During transport this space has to be filled with cushioning material (air pillows, foam,
+    /// packing paper, …) to immobilise the load.
+    ///
+    /// # Returns
+    /// The void volume in cubic units, never negative.
+    pub fn free_volume(&self) -> f64 {
+        (self.total_volume() - self.used_volume()).max(0.0)
+    }
+
+    /// Builds the packaging-material (void-fill) report for this container.
+    ///
+    /// Combines [`Container::total_volume`] and [`Container::used_volume`] into a reusable
+    /// [`PackagingFill`] value object (DRY).
+    pub fn packaging_fill(&self) -> PackagingFill {
+        PackagingFill::from_volumes(self.total_volume(), self.used_volume())
     }
 
     /// Checks if an object can basically fit in the container.
@@ -475,5 +498,61 @@ impl Dimensional for Container {
 impl Dimensional for ContainerBlueprint {
     fn dimensions(&self) -> Vec3 {
         Vec3::from_tuple(self.dims)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const EPS: f64 = 1e-9;
+
+    fn place(container: &mut Container, id: usize, dims: (f64, f64, f64), pos: (f64, f64, f64)) {
+        container.placed.push(PlacedBox {
+            object: Box3D {
+                id,
+                dims,
+                weight: 1.0,
+            },
+            position: pos,
+        });
+    }
+
+    #[test]
+    fn free_volume_is_container_volume_minus_used_volume() {
+        let mut container = Container::new((10.0, 10.0, 10.0), 100.0).unwrap();
+        place(&mut container, 1, (10.0, 10.0, 4.0), (0.0, 0.0, 0.0));
+
+        // 1000 total - 400 used = 600 void.
+        assert!((container.free_volume() - 600.0).abs() < EPS);
+    }
+
+    #[test]
+    fn free_volume_never_negative_for_empty_container() {
+        let container = Container::new((5.0, 5.0, 5.0), 100.0).unwrap();
+        // An empty container is entirely void space.
+        assert!((container.free_volume() - 125.0).abs() < EPS);
+    }
+
+    #[test]
+    fn packaging_fill_reports_void_volume_and_percentage() {
+        let mut container = Container::new((10.0, 10.0, 10.0), 100.0).unwrap();
+        place(&mut container, 1, (10.0, 10.0, 4.0), (0.0, 0.0, 0.0));
+
+        let fill = container.packaging_fill();
+        assert!((fill.container_volume - 1000.0).abs() < EPS);
+        assert!((fill.used_volume - 400.0).abs() < EPS);
+        assert!((fill.void_volume - 600.0).abs() < EPS);
+        assert!((fill.void_volume_percent - 60.0).abs() < EPS);
+    }
+
+    #[test]
+    fn packaging_fill_complements_utilization_percent() {
+        let mut container = Container::new((10.0, 10.0, 10.0), 100.0).unwrap();
+        place(&mut container, 1, (10.0, 10.0, 7.0), (0.0, 0.0, 0.0));
+
+        let fill = container.packaging_fill();
+        // Void percentage and utilization percentage must always add up to 100%.
+        assert!((fill.void_volume_percent + container.utilization_percent() - 100.0).abs() < 1e-6);
     }
 }

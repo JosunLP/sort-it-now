@@ -22,12 +22,77 @@ impl AppConfig {
     }
 }
 
+/// Upper bounds for a single packing request.
+///
+/// These guardrails protect the service from pathological or accidental oversized payloads. A
+/// limit of `0` disables the corresponding check (treated as unlimited).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RequestLimits {
+    max_objects: usize,
+    max_containers: usize,
+}
+
+impl RequestLimits {
+    pub const DEFAULT_MAX_OBJECTS: usize = 10_000;
+    pub const DEFAULT_MAX_CONTAINERS: usize = 1_000;
+    const MAX_OBJECTS_VAR: &'static str = "SORT_IT_NOW_MAX_OBJECTS";
+    const MAX_CONTAINERS_VAR: &'static str = "SORT_IT_NOW_MAX_CONTAINERS";
+
+    fn from_env() -> Self {
+        Self {
+            max_objects: load_usize_with_warning(Self::MAX_OBJECTS_VAR, Self::DEFAULT_MAX_OBJECTS),
+            max_containers: load_usize_with_warning(
+                Self::MAX_CONTAINERS_VAR,
+                Self::DEFAULT_MAX_CONTAINERS,
+            ),
+        }
+    }
+
+    /// Constructs explicit limits (`0` disables the corresponding check).
+    pub fn with_limits(max_objects: usize, max_containers: usize) -> Self {
+        Self {
+            max_objects,
+            max_containers,
+        }
+    }
+
+    /// Maximum number of objects accepted in a request (`0` = unlimited).
+    pub fn max_objects(&self) -> usize {
+        self.max_objects
+    }
+
+    /// Maximum number of container types accepted in a request (`0` = unlimited).
+    pub fn max_containers(&self) -> usize {
+        self.max_containers
+    }
+
+    /// Returns `true` if the given object count is within the configured limit.
+    pub fn allows_objects(&self, count: usize) -> bool {
+        self.max_objects == 0 || count <= self.max_objects
+    }
+
+    /// Returns `true` if the given container count is within the configured limit.
+    pub fn allows_containers(&self, count: usize) -> bool {
+        self.max_containers == 0 || count <= self.max_containers
+    }
+}
+
+impl Default for RequestLimits {
+    fn default() -> Self {
+        Self {
+            max_objects: Self::DEFAULT_MAX_OBJECTS,
+            max_containers: Self::DEFAULT_MAX_CONTAINERS,
+        }
+    }
+}
+
 /// Configuration for the API server.
 #[derive(Clone, Debug)]
 pub struct ApiConfig {
     bind_ip: IpAddr,
     display_host: String,
     port: u16,
+    limits: RequestLimits,
 }
 
 impl ApiConfig {
@@ -82,12 +147,18 @@ impl ApiConfig {
             bind_ip,
             display_host: effective_host,
             port,
+            limits: RequestLimits::from_env(),
         }
     }
 
     /// Socket address to bind the server to.
     pub fn socket_addr(&self) -> SocketAddr {
         SocketAddr::new(self.bind_ip, self.port)
+    }
+
+    /// Per-request guardrails for object and container counts.
+    pub fn request_limits(&self) -> RequestLimits {
+        self.limits
     }
 
     /// Visible hostname for logging and hints.
@@ -155,7 +226,7 @@ impl UpdateConfig {
 }
 
 /// Configuration for heuristic pack optimization.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct OptimizerConfig {
     packing: PackingConfig,
 }
@@ -236,6 +307,14 @@ impl OptimizerConfig {
         Self { packing }
     }
 
+    /// Builds an optimizer configuration from an explicit packing configuration.
+    ///
+    /// Useful for embedders and tests that need a deterministic configuration without reading
+    /// environment variables.
+    pub fn from_packing_config(packing: PackingConfig) -> Self {
+        Self { packing }
+    }
+
     /// Returns the configured PackingConfig.
     pub fn packing_config(&self) -> PackingConfig {
         self.packing
@@ -274,6 +353,26 @@ fn parse_bool(raw: &str, var_name: &str) -> Option<bool> {
             );
             None
         }
+    }
+}
+
+/// Loads a non-negative integer setting, falling back to `default` on parse failure.
+///
+/// A value of `0` is accepted and meaningful (it disables the associated limit), so only
+/// unparseable values trigger the default fallback.
+fn load_usize_with_warning(var_name: &str, default: usize) -> usize {
+    match env_string(var_name) {
+        Some(raw) => match raw.parse::<usize>() {
+            Ok(value) => value,
+            Err(err) => {
+                eprintln!(
+                    "⚠️ Could not parse {} ('{}') as a non-negative integer: {}. Using {}.",
+                    var_name, raw, err, default
+                );
+                default
+            }
+        },
+        None => default,
     }
 }
 

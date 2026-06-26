@@ -23,16 +23,18 @@ use tokio_stream::wrappers::ReceiverStream;
 use tower_http::cors::{Any, CorsLayer};
 use utoipa::{OpenApi, ToSchema};
 
-use crate::config::{ApiConfig, OptimizerConfig};
+use crate::config::{ApiConfig, OptimizerConfig, RequestLimits};
 use crate::model::{Box3D, Container, ContainerBlueprint, ValidationError};
 use crate::optimizer::{
-    ContainerDiagnostics, PackingDiagnosticsSummary, PackingResult, SupportDiagnostics,
-    pack_objects_with_config, pack_objects_with_progress,
+    ContainerDiagnostics, PackingConfig, PackingDiagnosticsSummary, PackingResult,
+    SupportDiagnostics, pack_objects_with_config, pack_objects_with_progress,
 };
+use crate::packaging::{PackagingFill, PackagingSummary};
 
 #[derive(Clone)]
 struct ApiState {
     optimizer_config: OptimizerConfig,
+    limits: RequestLimits,
 }
 
 static OPENAPI_DOC: OnceLock<utoipa::openapi::OpenApi> = OnceLock::new();
@@ -134,30 +136,66 @@ struct ValidatedPackRequest {
 }
 
 impl ValidatedPackRequest {
-    fn container_count(&self) -> usize {
-        self.containers.len()
-    }
-
-    fn object_count(&self) -> usize {
-        self.objects.len()
-    }
-
     fn into_parts(self) -> (Vec<Box3D>, Vec<ContainerBlueprint>, Option<bool>) {
         (self.objects, self.containers, self.allow_rotations)
     }
 }
 
+/// Reasons a [`PackRequest`] can be rejected before packing begins.
 #[derive(Debug)]
-enum PackRequestValidationError {
+pub enum PackRequestValidationError {
     MissingContainers,
     InvalidContainer(ValidationError),
     InvalidObject(ValidationError),
+    TooManyContainers { count: usize, max: usize },
+    TooManyObjects { count: usize, max: usize },
 }
 
+impl std::fmt::Display for PackRequestValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PackRequestValidationError::MissingContainers => {
+                write!(f, "At least one packaging type must be specified")
+            }
+            PackRequestValidationError::InvalidContainer(err) => {
+                write!(f, "Invalid container configuration: {err}")
+            }
+            PackRequestValidationError::InvalidObject(err) => write!(f, "{err}"),
+            PackRequestValidationError::TooManyContainers { count, max } => write!(
+                f,
+                "Too many container types: {count} exceeds the configured limit of {max}"
+            ),
+            PackRequestValidationError::TooManyObjects { count, max } => write!(
+                f,
+                "Too many objects: {count} exceeds the configured limit of {max}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for PackRequestValidationError {}
+
 impl PackRequest {
-    fn into_validated(self) -> Result<ValidatedPackRequest, PackRequestValidationError> {
+    fn into_validated(
+        self,
+        limits: RequestLimits,
+    ) -> Result<ValidatedPackRequest, PackRequestValidationError> {
         if self.containers.is_empty() {
             return Err(PackRequestValidationError::MissingContainers);
+        }
+
+        if !limits.allows_containers(self.containers.len()) {
+            return Err(PackRequestValidationError::TooManyContainers {
+                count: self.containers.len(),
+                max: limits.max_containers(),
+            });
+        }
+
+        if !limits.allows_objects(self.objects.len()) {
+            return Err(PackRequestValidationError::TooManyObjects {
+                count: self.objects.len(),
+                max: limits.max_objects(),
+            });
         }
 
         let containers = self
@@ -181,6 +219,27 @@ impl PackRequest {
             allow_rotations: self.allow_rotations,
         })
     }
+}
+
+/// Runs validation and packing for a deserialized request, returning a structured error.
+///
+/// This is the single shared entry point used by both the HTTP `/pack` handler and the offline
+/// CLI, keeping request handling DRY across transports.
+pub fn run_pack(
+    request: PackRequest,
+    base_config: PackingConfig,
+    limits: RequestLimits,
+) -> Result<PackResponse, PackRequestValidationError> {
+    let validated = request.into_validated(limits)?;
+    let (objects, container_blueprints, allow_rotations_override) = validated.into_parts();
+
+    let mut packing_config = base_config;
+    if let Some(allow_rotations) = allow_rotations_override {
+        packing_config.allow_item_rotation = allow_rotations;
+    }
+
+    let packing_result = pack_objects_with_config(objects, container_blueprints, packing_config);
+    Ok(PackResponse::from_packing_result(packing_result))
 }
 
 /// Response structure with all packed containers.
@@ -288,25 +347,29 @@ fn container_config_error(details: impl Into<String>) -> Response {
     )
 }
 
-fn parse_pack_request(
+/// Extracts a [`PackRequest`] from the request body, mapping deserialization failures to a 422.
+///
+/// The error variant is boxed because an axum [`Response`] is comparatively large; boxing keeps
+/// the common `Ok` path cheap to move around (see `clippy::result_large_err`).
+fn parse_json_body(
     payload: Result<Json<PackRequest>, JsonRejection>,
-) -> Result<ValidatedPackRequest, Response> {
-    let Json(payload) = match payload {
-        Ok(payload) => payload,
-        Err(err) => return Err(json_deserialize_error(err)),
-    };
+) -> Result<PackRequest, Box<Response>> {
+    match payload {
+        Ok(Json(payload)) => Ok(payload),
+        Err(err) => Err(Box::new(json_deserialize_error(err))),
+    }
+}
 
-    match payload.into_validated() {
-        Ok(validated) => Ok(validated),
-        Err(PackRequestValidationError::MissingContainers) => Err(validation_error(
-            "At least one packaging type must be specified",
-        )),
-        Err(PackRequestValidationError::InvalidContainer(err)) => {
-            Err(container_config_error(err.to_string()))
+/// Maps a structured validation error to the appropriate HTTP error response.
+fn pack_validation_response(err: PackRequestValidationError) -> Response {
+    match err {
+        PackRequestValidationError::MissingContainers => validation_error(err.to_string()),
+        PackRequestValidationError::InvalidContainer(ref inner) => {
+            container_config_error(inner.to_string())
         }
-        Err(PackRequestValidationError::InvalidObject(err)) => {
-            Err(validation_error(err.to_string()))
-        }
+        PackRequestValidationError::InvalidObject(ref inner) => validation_error(inner.to_string()),
+        PackRequestValidationError::TooManyContainers { .. }
+        | PackRequestValidationError::TooManyObjects { .. } => validation_error(err.to_string()),
     }
 }
 
@@ -326,7 +389,7 @@ impl PackResponse {
         Self {
             results: containers
                 .into_iter()
-                .zip(container_diagnostics.into_iter())
+                .zip(container_diagnostics)
                 .enumerate()
                 .map(|(i, (cont, diagnostics))| {
                     let Container {
@@ -376,9 +439,82 @@ impl PackResponse {
     }
 }
 
+/// Liveness/readiness response for monitoring and orchestration probes.
+#[derive(Serialize, ToSchema)]
+pub struct HealthResponse {
+    /// Always `"ok"` when the service is able to answer requests.
+    pub status: &'static str,
+}
+
+impl HealthResponse {
+    fn healthy() -> Self {
+        Self { status: "ok" }
+    }
+}
+
+/// Build and version information for the running service.
+#[derive(Serialize, ToSchema)]
+pub struct VersionResponse {
+    /// Crate name as defined in `Cargo.toml`.
+    pub name: &'static str,
+    /// Semantic version of the running build.
+    pub version: &'static str,
+    /// Short human-readable description of the service.
+    pub description: &'static str,
+}
+
+impl VersionResponse {
+    fn current() -> Self {
+        Self {
+            name: env!("CARGO_PKG_NAME"),
+            version: env!("CARGO_PKG_VERSION"),
+            description: env!("CARGO_PKG_DESCRIPTION"),
+        }
+    }
+}
+
+/// The active server-side packing configuration and request guardrails.
+///
+/// Lets clients introspect the defaults that apply when a request omits `allow_rotations`, and the
+/// limits that requests must respect.
+#[derive(Serialize, ToSchema)]
+pub struct ConfigResponse {
+    pub grid_step: f64,
+    pub support_ratio: f64,
+    pub height_epsilon: f64,
+    pub general_epsilon: f64,
+    pub balance_limit_ratio: f64,
+    pub footprint_cluster_tolerance: f64,
+    pub allow_item_rotation: bool,
+    pub max_objects: usize,
+    pub max_containers: usize,
+}
+
+impl ConfigResponse {
+    fn from_parts(config: PackingConfig, limits: RequestLimits) -> Self {
+        Self {
+            grid_step: config.grid_step,
+            support_ratio: config.support_ratio,
+            height_epsilon: config.height_epsilon,
+            general_epsilon: config.general_epsilon,
+            balance_limit_ratio: config.balance_limit_ratio,
+            footprint_cluster_tolerance: config.footprint_cluster_tolerance,
+            allow_item_rotation: config.allow_item_rotation,
+            max_objects: limits.max_objects(),
+            max_containers: limits.max_containers(),
+        }
+    }
+}
+
 #[derive(OpenApi)]
 #[openapi(
-    paths(handle_pack, handle_pack_stream),
+    paths(
+        handle_pack,
+        handle_pack_stream,
+        handle_health,
+        handle_version,
+        handle_config
+    ),
     components(
         schemas(
             PackRequest,
@@ -388,32 +524,47 @@ impl PackResponse {
             PackedObject,
             PackedUnplacedObject,
             ErrorResponse,
+            HealthResponse,
+            VersionResponse,
+            ConfigResponse,
             Box3D,
             ContainerDiagnostics,
             SupportDiagnostics,
-            PackingDiagnosticsSummary
+            PackingDiagnosticsSummary,
+            PackagingFill,
+            PackagingSummary
         )
     ),
-    tags((name = "packing", description = "Endpoints for packing optimization"))
+    tags(
+        (name = "packing", description = "Endpoints for packing optimization"),
+        (name = "system", description = "Service health, version, and configuration endpoints")
+    )
 )]
 struct ApiDoc;
 
-/// Starts the API server on port 8080.
+/// Builds the fully configured Axum [`Router`] for the service.
 ///
-/// Configures CORS for cross-origin requests from the frontend.
-/// Blocks until the server is terminated.
-pub async fn start_api_server(config: ApiConfig, optimizer_config: OptimizerConfig) {
+/// Exposed so that integration tests (and embedders) can exercise the complete routing and
+/// handler stack without binding a TCP socket.
+pub fn build_router(optimizer_config: OptimizerConfig, limits: RequestLimits) -> Router {
     let cors = CorsLayer::new()
         .allow_methods(Any)
         .allow_origin(Any)
         .allow_headers(Any);
 
-    let state = ApiState { optimizer_config };
+    let state = ApiState {
+        optimizer_config,
+        limits,
+    };
 
-    let app = Router::new()
+    Router::new()
         // API endpoints
         .route("/pack", post(handle_pack))
         .route("/pack_stream", post(handle_pack_stream))
+        // System endpoints
+        .route("/health", get(handle_health))
+        .route("/version", get(handle_version))
+        .route("/config", get(handle_config))
         // API documentation
         .route("/docs/openapi.json", get(serve_openapi_json))
         .route("/docs", get(serve_openapi_ui))
@@ -421,7 +572,15 @@ pub async fn start_api_server(config: ApiConfig, optimizer_config: OptimizerConf
         .route("/", get(serve_index))
         .route("/{*path}", get(serve_static))
         .layer(cors)
-        .with_state(state);
+        .with_state(state)
+}
+
+/// Starts the API server on the configured address.
+///
+/// Configures CORS for cross-origin requests from the frontend.
+/// Blocks until the server is terminated.
+pub async fn start_api_server(config: ApiConfig, optimizer_config: OptimizerConfig) {
+    let app = build_router(optimizer_config, config.request_limits());
 
     let addr = config.socket_addr();
     let listener = match tokio::net::TcpListener::bind(addr).await {
@@ -443,6 +602,9 @@ pub async fn start_api_server(config: ApiConfig, optimizer_config: OptimizerConf
     println!("📦 API Endpoints:");
     println!("   - POST /pack");
     println!("   - POST /pack_stream");
+    println!("   - GET /health");
+    println!("   - GET /version");
+    println!("   - GET /config");
     println!("📑 Documentation:");
     println!("   - GET /docs");
     println!("   - GET /docs/openapi.json");
@@ -480,32 +642,32 @@ async fn handle_pack(
     State(state): State<ApiState>,
     payload: Result<Json<PackRequest>, JsonRejection>,
 ) -> impl IntoResponse {
-    let request = match parse_pack_request(payload) {
+    let request = match parse_json_body(payload) {
         Ok(request) => request,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
-
-    let object_count = request.object_count();
-    let container_count = request.container_count();
-    let (objects, container_blueprints, allow_rotations_override) = request.into_parts();
 
     println!(
         "📥 New pack request: {} objects, {} packaging types",
-        object_count, container_count
-    );
-    let mut packing_config = state.optimizer_config.packing_config();
-    if let Some(allow_rotations) = allow_rotations_override {
-        packing_config.allow_item_rotation = allow_rotations;
-    }
-    let packing_result = pack_objects_with_config(objects, container_blueprints, packing_config);
-    println!(
-        "📦 Result: {} containers, {} unpacked objects",
-        packing_result.container_count(),
-        packing_result.unplaced_count()
+        request.objects.len(),
+        request.containers.len()
     );
 
-    let response = PackResponse::from_packing_result(packing_result);
-    (StatusCode::OK, Json(response)).into_response()
+    match run_pack(
+        request,
+        state.optimizer_config.packing_config(),
+        state.limits,
+    ) {
+        Ok(response) => {
+            println!(
+                "📦 Result: {} containers, {} unpacked objects",
+                response.results.len(),
+                response.unplaced.len()
+            );
+            (StatusCode::OK, Json(response)).into_response()
+        }
+        Err(err) => pack_validation_response(err),
+    }
 }
 
 /// Handler for POST /pack_stream endpoint (SSE).
@@ -535,12 +697,17 @@ async fn handle_pack_stream(
     State(state): State<ApiState>,
     payload: Result<Json<PackRequest>, JsonRejection>,
 ) -> impl IntoResponse {
-    let request = match parse_pack_request(payload) {
+    let request = match parse_json_body(payload) {
         Ok(request) => request,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
 
-    let (objects, container_blueprints, allow_rotations_override) = request.into_parts();
+    let validated = match request.into_validated(state.limits) {
+        Ok(validated) => validated,
+        Err(err) => return pack_validation_response(err),
+    };
+
+    let (objects, container_blueprints, allow_rotations_override) = validated.into_parts();
 
     let (tx, rx) = mpsc::channel::<String>(32);
 
@@ -552,10 +719,9 @@ async fn handle_pack_stream(
     tokio::task::spawn_blocking(move || {
         let _ = pack_objects_with_progress(objects, container_blueprints, packing_config, |evt| {
             if let Ok(json) = serde_json::to_string(evt) {
-                if tx.blocking_send(json).is_err() {
-                    // Receiver has closed the stream; remaining events are discarded.
-                    return;
-                }
+                // A send error means the receiver has closed the stream; remaining events
+                // are simply discarded on subsequent callback invocations.
+                let _ = tx.blocking_send(json);
             }
         });
     });
@@ -600,6 +766,48 @@ async fn serve_openapi_ui(State(_state): State<ApiState>) -> impl IntoResponse {
     Html(SWAGGER_UI_HTML)
 }
 
+/// Handler for GET /health.
+///
+/// Lightweight liveness probe that always returns `200 OK` while the process can serve requests.
+#[utoipa::path(
+    get,
+    path = "/health",
+    responses((status = 200, description = "Service is healthy", body = HealthResponse)),
+    tag = "system"
+)]
+async fn handle_health() -> impl IntoResponse {
+    (StatusCode::OK, Json(HealthResponse::healthy()))
+}
+
+/// Handler for GET /version.
+///
+/// Reports the crate name, semantic version, and description of the running build.
+#[utoipa::path(
+    get,
+    path = "/version",
+    responses((status = 200, description = "Build and version information", body = VersionResponse)),
+    tag = "system"
+)]
+async fn handle_version() -> impl IntoResponse {
+    (StatusCode::OK, Json(VersionResponse::current()))
+}
+
+/// Handler for GET /config.
+///
+/// Reports the active default packing configuration and the per-request guardrails so clients can
+/// align their inputs with the server.
+#[utoipa::path(
+    get,
+    path = "/config",
+    responses((status = 200, description = "Active packing configuration", body = ConfigResponse)),
+    tag = "system"
+)]
+async fn handle_config(State(state): State<ApiState>) -> impl IntoResponse {
+    let response =
+        ConfigResponse::from_parts(state.optimizer_config.packing_config(), state.limits);
+    (StatusCode::OK, Json(response))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -608,13 +816,34 @@ mod tests {
     fn openapi_doc_lists_expected_paths() {
         let doc = openapi_doc();
         let paths = &doc.paths.paths;
+        for expected in ["/pack", "/pack_stream", "/health", "/version"] {
+            assert!(
+                paths.contains_key(expected),
+                "OpenAPI documentation is missing the {expected} path"
+            );
+        }
+    }
+
+    #[test]
+    fn health_response_reports_ok() {
+        let health = HealthResponse::healthy();
+        assert_eq!(health.status, "ok");
+        let json = serde_json::to_value(&health).expect("health serializes");
+        assert_eq!(json["status"], "ok");
+    }
+
+    #[test]
+    fn version_response_reflects_build_metadata() {
+        let version = VersionResponse::current();
+        assert_eq!(version.name, env!("CARGO_PKG_NAME"));
+        assert_eq!(version.version, env!("CARGO_PKG_VERSION"));
         assert!(
-            paths.contains_key("/pack"),
-            "OpenAPI documentation is missing the /pack path"
+            !version.version.is_empty(),
+            "version string should never be empty"
         );
         assert!(
-            paths.contains_key("/pack_stream"),
-            "OpenAPI documentation is missing the /pack_stream path"
+            !version.description.is_empty(),
+            "Cargo.toml should define a package description"
         );
     }
 
@@ -709,7 +938,7 @@ mod tests {
         };
 
         let validated = request
-            .into_validated()
+            .into_validated(RequestLimits::default())
             .expect("Should validate successfully");
         assert_eq!(
             validated.allow_rotations,
@@ -719,10 +948,59 @@ mod tests {
     }
 
     #[test]
+    fn validation_rejects_too_many_objects() {
+        let request = PackRequest {
+            containers: vec![ContainerRequest {
+                name: None,
+                dims: (10.0, 10.0, 10.0),
+                max_weight: 100.0,
+            }],
+            objects: vec![
+                Box3D {
+                    id: 1,
+                    dims: (5.0, 5.0, 5.0),
+                    weight: 10.0,
+                },
+                Box3D {
+                    id: 2,
+                    dims: (5.0, 5.0, 5.0),
+                    weight: 10.0,
+                },
+            ],
+            allow_rotations: None,
+        };
+
+        let limits = RequestLimits::with_limits(1, 10);
+        let err = request
+            .into_validated(limits)
+            .expect_err("object count above the limit should be rejected");
+        assert!(
+            matches!(
+                err,
+                PackRequestValidationError::TooManyObjects { count: 2, max: 1 }
+            ),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn config_response_reflects_packing_config_and_limits() {
+        let config = PackingConfig::default();
+        let limits = RequestLimits::with_limits(42, 7);
+        let response = ConfigResponse::from_parts(config, limits);
+        assert_eq!(response.grid_step, PackingConfig::DEFAULT_GRID_STEP);
+        assert_eq!(response.allow_item_rotation, config.allow_item_rotation);
+        assert_eq!(response.max_objects, 42);
+        assert_eq!(response.max_containers, 7);
+    }
+
+    #[test]
     fn request_level_allow_rotations_true_overrides_config() {
         // Create a config with rotations disabled
-        let mut config = crate::optimizer::PackingConfig::default();
-        config.allow_item_rotation = false;
+        let mut config = crate::optimizer::PackingConfig {
+            allow_item_rotation: false,
+            ..Default::default()
+        };
 
         // Simulate request-level override
         let allow_rotations_override = Some(true);
@@ -739,8 +1017,10 @@ mod tests {
     #[test]
     fn request_level_allow_rotations_false_overrides_config() {
         // Create a config with rotations enabled
-        let mut config = crate::optimizer::PackingConfig::default();
-        config.allow_item_rotation = true;
+        let mut config = crate::optimizer::PackingConfig {
+            allow_item_rotation: true,
+            ..Default::default()
+        };
 
         // Simulate request-level override
         let allow_rotations_override = Some(false);
@@ -757,8 +1037,10 @@ mod tests {
     #[test]
     fn request_level_allow_rotations_none_preserves_config() {
         // Create a config with rotations disabled
-        let mut config = crate::optimizer::PackingConfig::default();
-        config.allow_item_rotation = false;
+        let mut config = crate::optimizer::PackingConfig {
+            allow_item_rotation: false,
+            ..Default::default()
+        };
 
         // Simulate request-level override with None
         let allow_rotations_override: Option<bool> = None;
@@ -772,8 +1054,10 @@ mod tests {
         );
 
         // Now test with rotations enabled
-        let mut config = crate::optimizer::PackingConfig::default();
-        config.allow_item_rotation = true;
+        let mut config = crate::optimizer::PackingConfig {
+            allow_item_rotation: true,
+            ..Default::default()
+        };
 
         if let Some(allow_rotations) = allow_rotations_override {
             config.allow_item_rotation = allow_rotations;

@@ -11,12 +11,17 @@ An intelligent 3D packing optimization service with interactive visualization.
   - Stability and support (60% minimum support ratio)
   - Center of mass balance
   - Layering (heavy objects at the bottom)
+- **Edge-anchored placement** that packs objects flush against their neighbours instead of snapping only to the search grid, for tighter results
 - **Automatic multi-container management**
 - **Optional object rotations** (enabled via request flag or environment variable)
+- **Per-container and aggregate utilization metrics** (volume and weight) reported in every response and stream
+- **Packaging-material estimation**: the void (empty) volume of every finished container that must be filled with cushioning material, reported per container and aggregated per shipment
+- **Configurable request guardrails** (max objects / container types per request) returning clear `422` errors
 - **Background GitHub release updater** with checksum verification and configurable rate-limit handling
 - **Native release installers** for Linux (`.deb`), macOS (`.pkg`), and Windows (`.msix`)
-- **Comprehensive unit tests**
-- **REST API** with JSON communication
+- **Reusable library crate** plus an **offline CLI** (`pack` subcommand) sharing the same engine as the HTTP API
+- **Comprehensive unit, integration, and doc tests**
+- **REST API** with JSON communication, plus `GET /health`, `GET /version`, and `GET /config` for monitoring and introspection
 - **OpenAPI & Swagger UI** with live documentation at `/docs`
 - **OOP principles** with DRY architecture
 - **Fully documented code** (Rust docstrings)
@@ -30,14 +35,17 @@ An intelligent 3D packing optimization service with interactive visualization.
 - **Highlighted live/animation focus** for the current placement step
 - **Live statistics**:
   - Object count
-  - Total weight
-  - Volume utilization
-  - Center of mass position
+  - Total weight and weight load
+  - Volume utilization (authoritative backend value)
+  - Packaging material (void volume) needed per container and in total
+  - Center of mass position and balance
+  - Aggregate fill (volume / weight) across all containers
 - **Packing status panel** with progress and configuration readiness
 - **Unplaced object panel** with rejection reasons
+- **JSON result export** of the current batch or live run (button or `E` shortcut)
 - **Configuration modal** with object rotation toggle
 - **Persistent configuration** via browser local storage
-- **Keyboard shortcuts** for batch/live runs, animation, navigation, and configuration
+- **Keyboard shortcuts** for batch/live runs, animation, navigation, export, and configuration
 - **Inline validation and toast notifications** for faster feedback
 - **Responsive design**
 
@@ -60,6 +68,26 @@ The server runs on `http://localhost:8080`
 
 > 💡 **Configuration note:** Copy `.env.example` to `.env` if needed to customize the API port, host, or update parameters. Unset values automatically fall back to their defaults.
 
+### Offline CLI usage
+
+The same binary can optimize a request without starting the server, which is handy for scripting and pipelines. It shares the exact validation and packing logic as the `/pack` endpoint.
+
+```bash
+# Read a PackRequest from a file and print the PackResponse as JSON
+cargo run -- pack request.json
+
+# Read from stdin
+cat request.json | cargo run -- pack
+echo '{"containers":[{"dims":[10,10,10],"max_weight":100}],"objects":[{"id":1,"dims":[10,10,5],"weight":40}]}' \
+  | cargo run -- pack -
+
+# Help and version
+cargo run -- --help
+cargo run -- --version
+```
+
+The `pack` subcommand exits non-zero with a descriptive message on invalid input.
+
 ### Open the frontend
 
 The web client is automatically served by the Rust backend. After startup, simply open `http://localhost:8080/` in your browser.
@@ -76,6 +104,7 @@ In the browser:
   - `B` = batch packing
   - `L` = live packing
   - `C` = open configuration
+  - `E` = export the current result as JSON
   - `←` / `→` = switch containers
   - `Space` = start/stop animation
 
@@ -96,34 +125,45 @@ The artifacts are uploaded both as workflow artifacts and automatically added to
 
 ### Single-command Installation / Uninstallation
 
-For reproducible installs, prefer a release tag (or commit SHA) instead of the mutable `main` branch.
-Replace every `<version>` placeholder below with the same release tag, including the `v` prefix (for example `v1.3.0`).
-The commands below stream the script directly into the shell / PowerShell, so no temporary script download is required.
-You can additionally set `SORT_IT_NOW_VERSION=<version>` to instruct the install scripts to download that specific release.
+The install scripts detect supported platforms and download the latest matching release. Currently supported targets are Linux (`x86_64`), macOS (`arm64` and `x86_64`), and Windows (`x86_64`). No version entry or other modifications are required. The commands below stream the script directly into the shell / PowerShell, so no temporary script download is needed.
 
 - Linux / macOS install:
 
   ```bash
-  curl -fsSL https://raw.githubusercontent.com/JosunLP/sort-it-now/<version>/scripts/install-unix.sh | SORT_IT_NOW_VERSION=<version> bash
+  curl -fsSL https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/install.sh | bash
   ```
+
+  Requires `bash`, `curl`, and `python3`. The Unix install script uses `python3` to parse GitHub release metadata, so on minimal systems you may need to install `python3` first.
 
 - Linux / macOS uninstall:
 
   ```bash
-  curl -fsSL https://raw.githubusercontent.com/JosunLP/sort-it-now/<version>/scripts/uninstall-unix.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/uninstall.sh | bash
   ```
 
 - Windows install (PowerShell, run as Administrator for the default destination under `%ProgramFiles%`):
 
   ```powershell
-  $env:SORT_IT_NOW_VERSION="<version>"; irm "https://raw.githubusercontent.com/JosunLP/sort-it-now/<version>/scripts/install-windows.ps1" | iex
+  irm "https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/install.ps1" | iex
   ```
 
 - Windows uninstall (PowerShell):
 
   ```powershell
-  irm "https://raw.githubusercontent.com/JosunLP/sort-it-now/<version>/scripts/uninstall-windows.ps1" | iex
+  irm "https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/uninstall.ps1" | iex
   ```
+
+To install a specific version instead of the latest release, set the environment variable `SORT_IT_NOW_VERSION` to a release tag (for example `v1.4.0`):
+
+```bash
+# Linux / macOS (when installing with sudo, preserve the pinned version variable)
+curl -fsSL https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/install.sh | sudo env SORT_IT_NOW_VERSION=v1.4.0 bash
+```
+
+```powershell
+# Windows
+$env:SORT_IT_NOW_VERSION="v1.4.0"; irm "https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/install.ps1" | iex
+```
 
 If you prefer to review the script before execution, you can still download it manually first.
 
@@ -191,6 +231,12 @@ On startup, the service checks for the latest GitHub releases (`JosunLP/sort-it-
 - `GET /docs` delivers an interactive Swagger UI with Subresource Integrity-protected assets.
 - `GET /docs/openapi.json` provides the OpenAPI schema (v3) and can be used for code generators.
 
+### System endpoints
+
+- `GET /health` returns `{ "status": "ok" }` and is suitable as a liveness/readiness probe.
+- `GET /version` returns the running build's `name`, `version`, and `description`.
+- `GET /config` returns the active packing configuration (grid step, support ratio, tolerances, rotation default) and the per-request guardrails (`max_objects`, `max_containers`).
+
 ### POST /pack
 
 Packs objects into containers.
@@ -232,11 +278,44 @@ The optional field `allow_rotations` enables 90° rotations per request. If omit
           "weight": 50.0,
           "dims": [30.0, 30.0, 10.0]
         }
-      ]
+      ],
+      "diagnostics": {
+        "center_of_mass_offset": 0.0,
+        "balance_limit": 63.6,
+        "imbalance_ratio": 0.0,
+        "average_support_percent": 100.0,
+        "minimum_support_percent": 100.0,
+        "volume_utilization_percent": 1.93,
+        "weight_utilization_percent": 16.0,
+        "packaging": {
+          "container_volume": 700000.0,
+          "used_volume": 13510.0,
+          "void_volume": 686490.0,
+          "void_volume_percent": 98.07
+        },
+        "support_samples": []
+      }
     }
-  ]
+  ],
+  "unplaced": [],
+  "is_complete": true,
+  "diagnostics_summary": {
+    "max_imbalance_ratio": 0.0,
+    "worst_support_percent": 100.0,
+    "average_support_percent": 100.0,
+    "average_volume_utilization_percent": 1.93,
+    "average_weight_utilization_percent": 16.0,
+    "packaging": {
+      "total_container_volume": 700000.0,
+      "total_used_volume": 13510.0,
+      "total_void_volume": 686490.0,
+      "average_void_volume_percent": 98.07
+    }
+  }
 }
 ```
+
+The `packaging` object reports the **void volume** — the empty space inside each finished container that has to be filled with cushioning material (air pillows, foam, packing paper, …) to immobilise the load during transport. `void_volume` is given in cubic units (cm³ when dimensions are in cm); `void_volume_percent` is the complement of `volume_utilization_percent`. The `diagnostics_summary.packaging` block aggregates this across every opened container, so `total_void_volume` is the total amount of packaging material a shipment needs.
 
 ### POST /pack_stream (SSE)
 
@@ -276,7 +355,7 @@ All tests should pass successfully:
 - **`Box3D`**: Represents a 3D object with ID, dimensions, and weight
 - **`PlacedBox`**: Object with position in the container
 - **`Container`**: Packaging container with capacity limits
-- Methods: `volume()`, `base_area()`, `total_weight()`, `remaining_weight()`, `utilization_percent()`
+- Methods: `volume()`, `base_area()`, `total_weight()`, `remaining_weight()`, `utilization_percent()`, `free_volume()`, `packaging_fill()`
 
 #### `geometry.rs`
 
@@ -284,6 +363,12 @@ All tests should pass successfully:
 - **`overlap_1d()`**: Calculates 1D overlap
 - **`overlap_area_xy()`**: Calculates XY overlap area
 - **`point_inside()`**: Point-in-box test
+
+#### `packaging.rs`
+
+- **`PackagingFill`**: Void-fill / packaging-material requirement for a single container
+- **`PackagingSummary`**: Aggregated packaging-material requirement across all containers
+- **`PackagingAccumulator`**: Folds per-container fills into a summary (DRY aggregation)
 
 #### `optimizer.rs`
 
@@ -294,6 +379,7 @@ All tests should pass successfully:
 - **`supports_weight_correctly()`**: Checks weight hierarchy
 - **`has_sufficient_support()`**: Checks minimum support ratio
 - **`calculate_balance_after()`**: Calculates center of mass deviation
+- **`compute_container_diagnostics()`**: Per-container metrics including packaging-material volume
 
 #### `api.rs`
 
@@ -346,6 +432,8 @@ The application optionally loads a `.env` file on startup (using [`dotenvy`](htt
 | ------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `SORT_IT_NOW_API_HOST`                      | `0.0.0.0`     | IP address the HTTP server binds to. Set e.g. `127.0.0.1` for local access.                                        |
 | `SORT_IT_NOW_API_PORT`                      | `8080`        | API server port. Values of `0` are rejected.                                                                       |
+| `SORT_IT_NOW_MAX_OBJECTS`                   | `10000`       | Maximum objects accepted per request (0 = unlimited). Exceeding it returns `422`.                                  |
+| `SORT_IT_NOW_MAX_CONTAINERS`                | `1000`        | Maximum container types accepted per request (0 = unlimited). Exceeding it returns `422`.                          |
 | `SORT_IT_NOW_GITHUB_OWNER`                  | `JosunLP`     | GitHub owner/organization whose releases are queried for updates.                                                  |
 | `SORT_IT_NOW_GITHUB_REPO`                   | `sort-it-now` | Repository name for the updater.                                                                                   |
 | `SORT_IT_NOW_HTTP_TIMEOUT_SECS`             | `30`          | Timeout in seconds for GitHub HTTP requests by the updater.                                                        |

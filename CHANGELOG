@@ -1,5 +1,30 @@
 # Changelog
 
+## [Unreleased]
+
+## [1.4.0] - 2026-06-26
+
+### Added
+
+- **Packaging-material (void-fill) estimation**: a new reusable `packaging` module (`PackagingFill`, `PackagingSummary`, `PackagingAccumulator`) computes the empty volume inside every finished container that must be filled with cushioning material to immobilise the load. Each container's `diagnostics.packaging` reports `container_volume`, `used_volume`, `void_volume`, and `void_volume_percent`; the aggregate `diagnostics_summary.packaging` reports `total_void_volume` (the total material a shipment needs) plus combined volumes and the average void percentage. Surfaced in the REST/SSE payloads, the OpenAPI schema, and the 3D UI statistics panel. `Container` gains `free_volume()` and `packaging_fill()` helpers.
+- **Container utilization metrics**: each container now reports `volume_utilization_percent` and `weight_utilization_percent`, and the aggregate summary reports `average_volume_utilization_percent` and `average_weight_utilization_percent`. These are surfaced in the REST/SSE payloads, the OpenAPI schema, and the 3D UI statistics panel.
+- **`GET /health`** liveness endpoint, **`GET /version`** build-info endpoint, and **`GET /config`** endpoint that reports the active packing configuration and request guardrails — all documented in the OpenAPI spec under the `system` tag.
+- **Offline CLI mode**: the binary now accepts a `pack [FILE|-]` subcommand that optimizes a JSON request and prints the JSON response (reads stdin by default), plus `--help` and `--version`. It shares the exact validation/packing path as the HTTP endpoint.
+- **Request guardrails**: configurable per-request limits on objects (`SORT_IT_NOW_MAX_OBJECTS`, default 10000) and container types (`SORT_IT_NOW_MAX_CONTAINERS`, default 1000); exceeding them returns a clear `422`. A value of `0` disables a limit.
+- **HTTP integration test suite** (`tests/api.rs`) exercising the full router (health/version/config, valid/invalid pack, guardrails, unplaced objects, static assets) via `tower`'s `oneshot`.
+- **Result export**: the web UI can download the current batch or live packing result (and the configuration that produced it) as a JSON file via a new button or the `E` keyboard shortcut.
+
+### Changed
+
+- **Library + binary split**: the crate now exposes a reusable library (`src/lib.rs`) with the engine, models, and HTTP layer; `src/main.rs` is a thin wrapper. This enables doc-tests, integration tests, and embedding. A public `api::build_router` and `api::run_pack` provide the shared, transport-agnostic entry points.
+- **Edge-anchored placement**: the optimizer now augments the position grid with the edges of already placed objects, letting items pack flush against their neighbours instead of snapping only to grid lines. This yields tighter packing and reduces the number of containers for grid-misaligned object sizes.
+
+### Improved
+
+- Cleared all `clippy` warnings (let-chains, simplified conditionals, boxed large error variant, struct-update syntax) and translated the remaining German comments/strings to English.
+- De-duplicated the frontend request payload and live placed-object counting into shared helpers (DRY).
+- Test coverage increased to **87 tests** (75 unit + 10 integration + 2 doc-tests) across all modules, including dedicated coverage for the packaging-material (void-fill) estimation.
+
 ## [1.3.0] - 2026-03-16
 
 ### Added
@@ -42,7 +67,7 @@
   - All Rust source files (8 files)
   - Documentation (README.md, CONCEPT.md, DOCKER_SETUP.md)
   - Copilot instructions (.github/copilot-instructions.md)
-  - Installation scripts (install-unix.sh, install-windows.ps1)
+  - Installation scripts (install.sh, install.ps1, uninstall.sh, uninstall.ps1)
   - Web frontend (index.html, script.js)
 - Updated copilot-instructions.md with comprehensive documentation
 
