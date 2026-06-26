@@ -60,6 +60,7 @@ use std::cmp::Ordering;
 
 use crate::geometry::{intersects, overlap_1d, point_inside};
 use crate::model::{Box3D, Container, ContainerBlueprint, PlacedBox};
+use crate::packaging::{PackagingAccumulator, PackagingFill, PackagingSummary};
 use crate::types::Dimensional;
 use utoipa::ToSchema;
 
@@ -439,6 +440,11 @@ pub struct ContainerDiagnostics {
     pub volume_utilization_percent: f64,
     /// Loaded weight as a percentage of the container weight limit (0.0 to 100.0).
     pub weight_utilization_percent: f64,
+    /// Void-space / packaging-material requirement for this container.
+    ///
+    /// The empty volume inside the container that must be filled with cushioning material to
+    /// immobilise the load during transport.
+    pub packaging: PackagingFill,
     pub support_samples: Vec<SupportDiagnostics>,
 }
 
@@ -452,6 +458,8 @@ pub struct PackingDiagnosticsSummary {
     pub average_volume_utilization_percent: f64,
     /// Mean weight utilization across all opened containers (0.0 to 100.0).
     pub average_weight_utilization_percent: f64,
+    /// Aggregated packaging-material (void-fill) requirement across all opened containers.
+    pub packaging: PackagingSummary,
 }
 
 impl Default for PackingDiagnosticsSummary {
@@ -462,6 +470,7 @@ impl Default for PackingDiagnosticsSummary {
             average_support_percent: 100.0,
             average_volume_utilization_percent: 0.0,
             average_weight_utilization_percent: 0.0,
+            packaging: PackagingSummary::empty(),
         }
     }
 }
@@ -1535,6 +1544,7 @@ pub fn compute_container_diagnostics(
         minimum_support_percent,
         volume_utilization_percent,
         weight_utilization_percent,
+        packaging: cont.packaging_fill(),
         support_samples,
     }
 }
@@ -1547,6 +1557,7 @@ struct SummaryAccumulator {
     volume_utilization_sum: f64,
     weight_utilization_sum: f64,
     container_count: usize,
+    packaging: PackagingAccumulator,
 }
 
 impl SummaryAccumulator {
@@ -1559,6 +1570,7 @@ impl SummaryAccumulator {
             volume_utilization_sum: 0.0,
             weight_utilization_sum: 0.0,
             container_count: 0,
+            packaging: PackagingAccumulator::new(),
         }
     }
 
@@ -1571,6 +1583,7 @@ impl SummaryAccumulator {
         self.container_count += 1;
         self.volume_utilization_sum += diagnostics.volume_utilization_percent;
         self.weight_utilization_sum += diagnostics.weight_utilization_percent;
+        self.packaging.record(&diagnostics.packaging);
 
         let sample_count = diagnostics.support_samples.len();
         if sample_count > 0 {
@@ -1608,6 +1621,7 @@ impl SummaryAccumulator {
             average_support_percent,
             average_volume_utilization_percent,
             average_weight_utilization_percent,
+            packaging: self.packaging.finish(),
         }
     }
 }
@@ -2185,6 +2199,64 @@ mod tests {
         let summary = summarize_diagnostics(std::iter::empty());
         assert_eq!(summary.average_volume_utilization_percent, 0.0);
         assert_eq!(summary.average_weight_utilization_percent, 0.0);
+        assert_eq!(summary.packaging, PackagingSummary::empty());
+    }
+
+    #[test]
+    fn diagnostics_report_packaging_material_void_volume() {
+        let config = PackingConfig::default();
+        let mut container = Container::new((10.0, 10.0, 10.0), 100.0).unwrap();
+
+        container.placed.push(PlacedBox {
+            object: Box3D {
+                id: 1,
+                dims: (10.0, 10.0, 4.0),
+                weight: 40.0,
+            },
+            position: (0.0, 0.0, 0.0),
+        });
+
+        let diagnostics = compute_container_diagnostics(&container, &config);
+
+        // 1000 total - 400 used = 600 cubic units of cushioning material, i.e. 60% of the box.
+        assert!((diagnostics.packaging.void_volume - 600.0).abs() < 1e-6);
+        assert!((diagnostics.packaging.void_volume_percent - 60.0).abs() < 1e-6);
+        // Fill and void shares are complementary.
+        assert!(
+            (diagnostics.packaging.void_volume_percent + diagnostics.volume_utilization_percent
+                - 100.0)
+                .abs()
+                < 1e-6
+        );
+    }
+
+    #[test]
+    fn summary_aggregates_packaging_material_across_containers() {
+        // Two identical heavy objects exceed a single container's weight limit, forcing the
+        // optimizer to open two containers — each one half-filled by volume.
+        let objects = vec![
+            Box3D {
+                id: 1,
+                dims: (10.0, 10.0, 5.0),
+                weight: 300.0,
+            },
+            Box3D {
+                id: 2,
+                dims: (10.0, 10.0, 5.0),
+                weight: 300.0,
+            },
+        ];
+
+        let result = pack_objects(objects, single_blueprint((10.0, 10.0, 10.0), 400.0));
+        assert_eq!(result.containers.len(), 2);
+
+        // Each container holds 500 of 1000 cubic units, so 500 units of packaging material per
+        // container and 1000 in total.
+        let packaging = result.diagnostics_summary.packaging;
+        assert!((packaging.total_void_volume - 1000.0).abs() < 1e-6);
+        assert!((packaging.total_container_volume - 2000.0).abs() < 1e-6);
+        assert!((packaging.total_used_volume - 1000.0).abs() < 1e-6);
+        assert!((packaging.average_void_volume_percent - 50.0).abs() < 1e-6);
     }
 
     #[test]

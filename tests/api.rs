@@ -106,9 +106,28 @@ async fn pack_endpoint_returns_utilization_metrics() {
     assert!((diagnostics["volume_utilization_percent"].as_f64().unwrap() - 50.0).abs() < 1e-6);
     assert!((diagnostics["weight_utilization_percent"].as_f64().unwrap() - 40.0).abs() < 1e-6);
 
+    // The container has a 1000-unit interior with 500 units filled, leaving 500 units of void
+    // space that must be filled with packaging material (50% of the container).
+    let packaging = &diagnostics["packaging"];
+    assert!((packaging["container_volume"].as_f64().unwrap() - 1000.0).abs() < 1e-6);
+    assert!((packaging["used_volume"].as_f64().unwrap() - 500.0).abs() < 1e-6);
+    assert!((packaging["void_volume"].as_f64().unwrap() - 500.0).abs() < 1e-6);
+    assert!((packaging["void_volume_percent"].as_f64().unwrap() - 50.0).abs() < 1e-6);
+
     let summary = &body["diagnostics_summary"];
     assert!(
         (summary["average_volume_utilization_percent"]
+            .as_f64()
+            .unwrap()
+            - 50.0)
+            .abs()
+            < 1e-6
+    );
+
+    let summary_packaging = &summary["packaging"];
+    assert!((summary_packaging["total_void_volume"].as_f64().unwrap() - 500.0).abs() < 1e-6);
+    assert!(
+        (summary_packaging["average_void_volume_percent"]
             .as_f64()
             .unwrap()
             - 50.0)

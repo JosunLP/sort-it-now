@@ -17,6 +17,8 @@ Multiple container types with individual dimensions and weight limits.
 Algorithmic solution.
 If container volume or base area is insufficient, objects should be packed efficiently across multiple containers of the specified sizes.
 
+In addition to placing the objects, the calculation must report the **void volume** of every finished container — the empty space that is not occupied by any object and therefore has to be filled with packaging/cushioning material (air pillows, foam, packing paper, …) to immobilise the load during transport. This is reported per container and aggregated across the whole shipment.
+
 Accordingly, the algorithm must be executed multiple times until all objects are packed.
 Additionally, the algorithm can combine different container types to best meet requirements.
 

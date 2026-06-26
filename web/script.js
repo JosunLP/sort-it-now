@@ -489,6 +489,15 @@ function updateStats(container, dims, visibleCount = null) {
     Number.isFinite(diagnostics?.volume_utilization_percent)
       ? diagnostics.volume_utilization_percent.toFixed(1)
       : ((usedVolume / containerVolume) * 100).toFixed(1);
+  // Empty (void) volume that has to be filled with cushioning material. Prefer the authoritative
+  // backend figure for the full container; fall back to a client-side estimate during step
+  // animation, where only a subset of objects is visible.
+  const voidVolume =
+    visibleCount === null && Number.isFinite(diagnostics?.packaging?.void_volume)
+      ? diagnostics.packaging.void_volume
+      : Math.max(containerVolume - usedVolume, 0);
+  const voidPercent =
+    containerVolume > 0 ? (voidVolume / containerVolume) * 100 : 0;
   const unplacedCount = liveMode
     ? liveUnplaced.length
     : packingResults && Array.isArray(packingResults.unplaced)
@@ -525,6 +534,17 @@ function updateStats(container, dims, visibleCount = null) {
     return `${value.toFixed(fractionDigits)}%`;
   };
 
+  // Volumes are cubic centimetres (dimensions are entered in cm). Litres are shown alongside once
+  // the void is large enough to make the unit tangible.
+  const formatVolume = (value) => {
+    if (!Number.isFinite(value)) return '—';
+    const cm3 = Math.round(value).toLocaleString('en-US');
+    const liters = value / 1000;
+    return liters >= 0.1
+      ? `${cm3} cm³ (${liters.toFixed(liters >= 10 ? 0 : 1)} L)`
+      : `${cm3} cm³`;
+  };
+
   const limitText = Number.isFinite(diagnostics?.balance_limit)
     ? `${diagnostics.balance_limit.toFixed(1)} cm`
     : '—';
@@ -558,6 +578,15 @@ function updateStats(container, dims, visibleCount = null) {
       <p>Fill Ø (vol / weight): ${formatPlainPercent(
         summary.average_volume_utilization_percent
       )} · ${formatPlainPercent(summary.average_weight_utilization_percent)}</p>
+      ${
+        summary.packaging
+          ? `<p>Packaging material (total): ${formatVolume(
+              summary.packaging.total_void_volume
+            )} · Ø ${formatPlainPercent(
+              summary.packaging.average_void_volume_percent
+            )}</p>`
+          : ''
+      }
     `
     : '';
 
@@ -576,6 +605,9 @@ function updateStats(container, dims, visibleCount = null) {
     maxWeight ? ` / ${maxWeight} kg` : ''
   }</p>
     <p><strong>Utilization:</strong> ${utilization}%</p>
+    <p><strong>Packaging material:</strong> ${formatVolume(
+      voidVolume
+    )} · ${voidPercent.toFixed(1)}%</p>
     ${
       unplacedCount > 0
         ? `<p><strong>Not packed:</strong> ${unplacedCount}</p>`
@@ -1199,6 +1231,12 @@ function recomputeLiveDiagnosticsSummary() {
   let supportCount = 0;
   let volumeSum = 0;
   let weightSum = 0;
+  // Aggregate the per-container packaging-material (void-fill) requirement so the live summary
+  // mirrors the backend's PackagingSummary.
+  let packagingContainerVolume = 0;
+  let packagingUsedVolume = 0;
+  let packagingVoidVolume = 0;
+  let packagingVoidPercentSum = 0;
 
   diagnosticsList.forEach((diag) => {
     if (Number.isFinite(diag.imbalance_ratio)) {
@@ -1212,6 +1250,21 @@ function recomputeLiveDiagnosticsSummary() {
     }
     if (Number.isFinite(diag.weight_utilization_percent)) {
       weightSum += diag.weight_utilization_percent;
+    }
+    const packaging = diag.packaging;
+    if (packaging && typeof packaging === 'object') {
+      if (Number.isFinite(packaging.container_volume)) {
+        packagingContainerVolume += packaging.container_volume;
+      }
+      if (Number.isFinite(packaging.used_volume)) {
+        packagingUsedVolume += packaging.used_volume;
+      }
+      if (Number.isFinite(packaging.void_volume)) {
+        packagingVoidVolume += packaging.void_volume;
+      }
+      if (Number.isFinite(packaging.void_volume_percent)) {
+        packagingVoidPercentSum += packaging.void_volume_percent;
+      }
     }
     const samples = Array.isArray(diag.support_samples)
       ? diag.support_samples.filter((sample) =>
@@ -1239,6 +1292,12 @@ function recomputeLiveDiagnosticsSummary() {
     average_support_percent: averageSupport,
     average_volume_utilization_percent: volumeSum / containerCount,
     average_weight_utilization_percent: weightSum / containerCount,
+    packaging: {
+      total_container_volume: packagingContainerVolume,
+      total_used_volume: packagingUsedVolume,
+      total_void_volume: packagingVoidVolume,
+      average_void_volume_percent: packagingVoidPercentSum / containerCount,
+    },
   };
 }
 

@@ -15,6 +15,7 @@ An intelligent 3D packing optimization service with interactive visualization.
 - **Automatic multi-container management**
 - **Optional object rotations** (enabled via request flag or environment variable)
 - **Per-container and aggregate utilization metrics** (volume and weight) reported in every response and stream
+- **Packaging-material estimation**: the void (empty) volume of every finished container that must be filled with cushioning material, reported per container and aggregated per shipment
 - **Configurable request guardrails** (max objects / container types per request) returning clear `422` errors
 - **Background GitHub release updater** with checksum verification and configurable rate-limit handling
 - **Native release installers** for Linux (`.deb`), macOS (`.pkg`), and Windows (`.msix`)
@@ -36,6 +37,7 @@ An intelligent 3D packing optimization service with interactive visualization.
   - Object count
   - Total weight and weight load
   - Volume utilization (authoritative backend value)
+  - Packaging material (void volume) needed per container and in total
   - Center of mass position and balance
   - Aggregate fill (volume / weight) across all containers
 - **Packing status panel** with progress and configuration readiness
@@ -285,6 +287,12 @@ The optional field `allow_rotations` enables 90° rotations per request. If omit
         "minimum_support_percent": 100.0,
         "volume_utilization_percent": 1.93,
         "weight_utilization_percent": 16.0,
+        "packaging": {
+          "container_volume": 700000.0,
+          "used_volume": 13510.0,
+          "void_volume": 686490.0,
+          "void_volume_percent": 98.07
+        },
         "support_samples": []
       }
     }
@@ -296,10 +304,18 @@ The optional field `allow_rotations` enables 90° rotations per request. If omit
     "worst_support_percent": 100.0,
     "average_support_percent": 100.0,
     "average_volume_utilization_percent": 1.93,
-    "average_weight_utilization_percent": 16.0
+    "average_weight_utilization_percent": 16.0,
+    "packaging": {
+      "total_container_volume": 700000.0,
+      "total_used_volume": 13510.0,
+      "total_void_volume": 686490.0,
+      "average_void_volume_percent": 98.07
+    }
   }
 }
 ```
+
+The `packaging` object reports the **void volume** — the empty space inside each finished container that has to be filled with cushioning material (air pillows, foam, packing paper, …) to immobilise the load during transport. `void_volume` is given in cubic units (cm³ when dimensions are in cm); `void_volume_percent` is the complement of `volume_utilization_percent`. The `diagnostics_summary.packaging` block aggregates this across every opened container, so `total_void_volume` is the total amount of packaging material a shipment needs.
 
 ### POST /pack_stream (SSE)
 
@@ -339,7 +355,7 @@ All tests should pass successfully:
 - **`Box3D`**: Represents a 3D object with ID, dimensions, and weight
 - **`PlacedBox`**: Object with position in the container
 - **`Container`**: Packaging container with capacity limits
-- Methods: `volume()`, `base_area()`, `total_weight()`, `remaining_weight()`, `utilization_percent()`
+- Methods: `volume()`, `base_area()`, `total_weight()`, `remaining_weight()`, `utilization_percent()`, `free_volume()`, `packaging_fill()`
 
 #### `geometry.rs`
 
@@ -347,6 +363,12 @@ All tests should pass successfully:
 - **`overlap_1d()`**: Calculates 1D overlap
 - **`overlap_area_xy()`**: Calculates XY overlap area
 - **`point_inside()`**: Point-in-box test
+
+#### `packaging.rs`
+
+- **`PackagingFill`**: Void-fill / packaging-material requirement for a single container
+- **`PackagingSummary`**: Aggregated packaging-material requirement across all containers
+- **`PackagingAccumulator`**: Folds per-container fills into a summary (DRY aggregation)
 
 #### `optimizer.rs`
 
@@ -357,6 +379,7 @@ All tests should pass successfully:
 - **`supports_weight_correctly()`**: Checks weight hierarchy
 - **`has_sufficient_support()`**: Checks minimum support ratio
 - **`calculate_balance_after()`**: Calculates center of mass deviation
+- **`compute_container_diagnostics()`**: Per-container metrics including packaging-material volume
 
 #### `api.rs`
 

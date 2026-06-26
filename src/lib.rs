@@ -10,6 +10,7 @@
 //! - [`types`] — geometry primitives (`Vec3`, `BoundingBox`) and shared traits.
 //! - [`model`] — domain models (`Box3D`, `PlacedBox`, `Container`, `ContainerBlueprint`).
 //! - [`geometry`] — stateless collision and support helpers.
+//! - [`packaging`] — void-fill / packaging-material estimation value objects.
 //! - [`optimizer`] — the heuristic packing engine and its diagnostics.
 //! - [`config`] — environment-driven configuration for the API, optimizer, and updater.
 //! - [`api`] — the Axum HTTP layer (router, request/response types, handlers).
@@ -21,5 +22,6 @@ pub mod config;
 pub mod geometry;
 pub mod model;
 pub mod optimizer;
+pub mod packaging;
 pub mod types;
 pub mod update;

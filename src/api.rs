@@ -29,6 +29,7 @@ use crate::optimizer::{
     ContainerDiagnostics, PackingConfig, PackingDiagnosticsSummary, PackingResult,
     SupportDiagnostics, pack_objects_with_config, pack_objects_with_progress,
 };
+use crate::packaging::{PackagingFill, PackagingSummary};
 
 #[derive(Clone)]
 struct ApiState {
@@ -529,7 +530,9 @@ impl ConfigResponse {
             Box3D,
             ContainerDiagnostics,
             SupportDiagnostics,
-            PackingDiagnosticsSummary
+            PackingDiagnosticsSummary,
+            PackagingFill,
+            PackagingSummary
         )
     ),
     tags(
