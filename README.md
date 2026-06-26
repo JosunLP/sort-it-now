@@ -153,16 +153,16 @@ The install scripts detect supported platforms and download the latest matching 
   irm "https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/uninstall.ps1" | iex
   ```
 
-To install a specific version instead of the latest release, set the environment variable `SORT_IT_NOW_VERSION` to a release tag (for example `v1.3.0`):
+To install a specific version instead of the latest release, set the environment variable `SORT_IT_NOW_VERSION` to a release tag (for example `v1.4.0`):
 
 ```bash
 # Linux / macOS (when installing with sudo, preserve the pinned version variable)
-curl -fsSL https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/install.sh | sudo env SORT_IT_NOW_VERSION=v1.3.0 bash
+curl -fsSL https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/install.sh | sudo env SORT_IT_NOW_VERSION=v1.4.0 bash
 ```
 
 ```powershell
 # Windows
-$env:SORT_IT_NOW_VERSION="v1.3.0"; irm "https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/install.ps1" | iex
+$env:SORT_IT_NOW_VERSION="v1.4.0"; irm "https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/install.ps1" | iex
 ```
 
 If you prefer to review the script before execution, you can still download it manually first.

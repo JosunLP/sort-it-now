@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-06-26
+
 ### Added
 
 - **Packaging-material (void-fill) estimation**: a new reusable `packaging` module (`PackagingFill`, `PackagingSummary`, `PackagingAccumulator`) computes the empty volume inside every finished container that must be filled with cushioning material to immobilise the load. Each container's `diagnostics.packaging` reports `container_volume`, `used_volume`, `void_volume`, and `void_volume_percent`; the aggregate `diagnostics_summary.packaging` reports `total_void_volume` (the total material a shipment needs) plus combined volumes and the average void percentage. Surfaced in the REST/SSE payloads, the OpenAPI schema, and the 3D UI statistics panel. `Container` gains `free_volume()` and `packaging_fill()` helpers.
