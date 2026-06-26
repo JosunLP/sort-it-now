@@ -11,12 +11,16 @@ An intelligent 3D packing optimization service with interactive visualization.
   - Stability and support (60% minimum support ratio)
   - Center of mass balance
   - Layering (heavy objects at the bottom)
+- **Edge-anchored placement** that packs objects flush against their neighbours instead of snapping only to the search grid, for tighter results
 - **Automatic multi-container management**
 - **Optional object rotations** (enabled via request flag or environment variable)
+- **Per-container and aggregate utilization metrics** (volume and weight) reported in every response and stream
+- **Configurable request guardrails** (max objects / container types per request) returning clear `422` errors
 - **Background GitHub release updater** with checksum verification and configurable rate-limit handling
 - **Native release installers** for Linux (`.deb`), macOS (`.pkg`), and Windows (`.msix`)
-- **Comprehensive unit tests**
-- **REST API** with JSON communication
+- **Reusable library crate** plus an **offline CLI** (`pack` subcommand) sharing the same engine as the HTTP API
+- **Comprehensive unit, integration, and doc tests**
+- **REST API** with JSON communication, plus `GET /health`, `GET /version`, and `GET /config` for monitoring and introspection
 - **OpenAPI & Swagger UI** with live documentation at `/docs`
 - **OOP principles** with DRY architecture
 - **Fully documented code** (Rust docstrings)
@@ -30,14 +34,16 @@ An intelligent 3D packing optimization service with interactive visualization.
 - **Highlighted live/animation focus** for the current placement step
 - **Live statistics**:
   - Object count
-  - Total weight
-  - Volume utilization
-  - Center of mass position
+  - Total weight and weight load
+  - Volume utilization (authoritative backend value)
+  - Center of mass position and balance
+  - Aggregate fill (volume / weight) across all containers
 - **Packing status panel** with progress and configuration readiness
 - **Unplaced object panel** with rejection reasons
+- **JSON result export** of the current batch or live run (button or `E` shortcut)
 - **Configuration modal** with object rotation toggle
 - **Persistent configuration** via browser local storage
-- **Keyboard shortcuts** for batch/live runs, animation, navigation, and configuration
+- **Keyboard shortcuts** for batch/live runs, animation, navigation, export, and configuration
 - **Inline validation and toast notifications** for faster feedback
 - **Responsive design**
 
@@ -60,6 +66,26 @@ The server runs on `http://localhost:8080`
 
 > 💡 **Configuration note:** Copy `.env.example` to `.env` if needed to customize the API port, host, or update parameters. Unset values automatically fall back to their defaults.
 
+### Offline CLI usage
+
+The same binary can optimize a request without starting the server, which is handy for scripting and pipelines. It shares the exact validation and packing logic as the `/pack` endpoint.
+
+```bash
+# Read a PackRequest from a file and print the PackResponse as JSON
+cargo run -- pack request.json
+
+# Read from stdin
+cat request.json | cargo run -- pack
+echo '{"containers":[{"dims":[10,10,10],"max_weight":100}],"objects":[{"id":1,"dims":[10,10,5],"weight":40}]}' \
+  | cargo run -- pack -
+
+# Help and version
+cargo run -- --help
+cargo run -- --version
+```
+
+The `pack` subcommand exits non-zero with a descriptive message on invalid input.
+
 ### Open the frontend
 
 The web client is automatically served by the Rust backend. After startup, simply open `http://localhost:8080/` in your browser.
@@ -76,6 +102,7 @@ In the browser:
   - `B` = batch packing
   - `L` = live packing
   - `C` = open configuration
+  - `E` = export the current result as JSON
   - `←` / `→` = switch containers
   - `Space` = start/stop animation
 
@@ -202,6 +229,12 @@ On startup, the service checks for the latest GitHub releases (`JosunLP/sort-it-
 - `GET /docs` delivers an interactive Swagger UI with Subresource Integrity-protected assets.
 - `GET /docs/openapi.json` provides the OpenAPI schema (v3) and can be used for code generators.
 
+### System endpoints
+
+- `GET /health` returns `{ "status": "ok" }` and is suitable as a liveness/readiness probe.
+- `GET /version` returns the running build's `name`, `version`, and `description`.
+- `GET /config` returns the active packing configuration (grid step, support ratio, tolerances, rotation default) and the per-request guardrails (`max_objects`, `max_containers`).
+
 ### POST /pack
 
 Packs objects into containers.
@@ -243,9 +276,28 @@ The optional field `allow_rotations` enables 90° rotations per request. If omit
           "weight": 50.0,
           "dims": [30.0, 30.0, 10.0]
         }
-      ]
+      ],
+      "diagnostics": {
+        "center_of_mass_offset": 0.0,
+        "balance_limit": 63.6,
+        "imbalance_ratio": 0.0,
+        "average_support_percent": 100.0,
+        "minimum_support_percent": 100.0,
+        "volume_utilization_percent": 1.93,
+        "weight_utilization_percent": 16.0,
+        "support_samples": []
+      }
     }
-  ]
+  ],
+  "unplaced": [],
+  "is_complete": true,
+  "diagnostics_summary": {
+    "max_imbalance_ratio": 0.0,
+    "worst_support_percent": 100.0,
+    "average_support_percent": 100.0,
+    "average_volume_utilization_percent": 1.93,
+    "average_weight_utilization_percent": 16.0
+  }
 }
 ```
 
@@ -357,6 +409,8 @@ The application optionally loads a `.env` file on startup (using [`dotenvy`](htt
 | ------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `SORT_IT_NOW_API_HOST`                      | `0.0.0.0`     | IP address the HTTP server binds to. Set e.g. `127.0.0.1` for local access.                                        |
 | `SORT_IT_NOW_API_PORT`                      | `8080`        | API server port. Values of `0` are rejected.                                                                       |
+| `SORT_IT_NOW_MAX_OBJECTS`                   | `10000`       | Maximum objects accepted per request (0 = unlimited). Exceeding it returns `422`.                                  |
+| `SORT_IT_NOW_MAX_CONTAINERS`                | `1000`        | Maximum container types accepted per request (0 = unlimited). Exceeding it returns `422`.                          |
 | `SORT_IT_NOW_GITHUB_OWNER`                  | `JosunLP`     | GitHub owner/organization whose releases are queried for updates.                                                  |
 | `SORT_IT_NOW_GITHUB_REPO`                   | `sort-it-now` | Repository name for the updater.                                                                                   |
 | `SORT_IT_NOW_HTTP_TIMEOUT_SECS`             | `30`          | Timeout in seconds for GitHub HTTP requests by the updater.                                                        |

@@ -15,7 +15,11 @@ use utoipa::ToSchema;
 use crate::types::{BoundingBox, Dimensional, EPSILON_GENERAL, Positioned, Vec3, Weighted};
 
 /// Validation error for object data.
+///
+/// The shared `Invalid` prefix is intentional: every variant describes an invalid input category,
+/// which keeps error matching and `Display` output consistent.
 #[derive(Debug, Clone)]
+#[allow(clippy::enum_variant_names)]
 pub enum ValidationError {
     InvalidDimension(String),
     InvalidWeight(String),
@@ -316,7 +320,6 @@ impl Container {
     ///
     /// # Returns
     /// Sum of the volumes of all placed objects
-    #[allow(dead_code)]
     pub fn used_volume(&self) -> f64 {
         self.placed.iter().map(|b| b.object.volume()).sum()
     }
@@ -325,7 +328,6 @@ impl Container {
     ///
     /// # Returns
     /// Volume of the container
-    #[allow(dead_code)]
     pub fn total_volume(&self) -> f64 {
         let (w, d, h) = self.dims;
         w * d * h

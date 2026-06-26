@@ -481,7 +481,14 @@ function updateStats(container, dims, visibleCount = null) {
   const usedVolume = container.placed
     .slice(0, objectCount)
     .reduce((sum, obj) => sum + obj.dims[0] * obj.dims[1] * obj.dims[2], 0);
-  const utilization = ((usedVolume / containerVolume) * 100).toFixed(1);
+  const diagnostics = container.diagnostics ?? null;
+  // Prefer the authoritative backend utilization for the full container; fall back to a
+  // client-side computation during step animation, where only a subset is visible.
+  const utilization =
+    visibleCount === null &&
+    Number.isFinite(diagnostics?.volume_utilization_percent)
+      ? diagnostics.volume_utilization_percent.toFixed(1)
+      : ((usedVolume / containerVolume) * 100).toFixed(1);
   const unplacedCount = liveMode
     ? liveUnplaced.length
     : packingResults && Array.isArray(packingResults.unplaced)
@@ -504,7 +511,6 @@ function updateStats(container, dims, visibleCount = null) {
     : `${liveMode ? 'Live Container' : 'Container'} ${
         currentContainerIndex + 1
       }`;
-  const diagnostics = container.diagnostics ?? null;
   const summary = liveMode
     ? liveDiagnosticsSummary
     : packingResults?.diagnostics_summary ?? null;
@@ -535,6 +541,9 @@ function updateStats(container, dims, visibleCount = null) {
     <p><strong>Support:</strong> Ø ${formatPlainPercent(
       diagnostics.average_support_percent
     )} · min ${formatPlainPercent(diagnostics.minimum_support_percent)}</p>
+    <p><strong>Weight Load:</strong> ${formatPlainPercent(
+      diagnostics.weight_utilization_percent
+    )}</p>
   `
     : '';
 
@@ -546,6 +555,9 @@ function updateStats(container, dims, visibleCount = null) {
       <p>Support Ø / min: ${formatPlainPercent(
         summary.average_support_percent
       )} · ${formatPlainPercent(summary.worst_support_percent)}</p>
+      <p>Fill Ø (vol / weight): ${formatPlainPercent(
+        summary.average_volume_utilization_percent
+      )} · ${formatPlainPercent(summary.average_weight_utilization_percent)}</p>
     `
     : '';
 
@@ -1056,6 +1068,27 @@ function renderConfigValidationSummary() {
   `;
 }
 
+// Builds the JSON body shared by the batch and live packing endpoints (DRY).
+function buildPackRequestPayload() {
+  return {
+    containers: config.containers.map((container) => ({
+      name: container.name,
+      dims: container.dims,
+      max_weight: container.maxWeight,
+    })),
+    objects: config.objects,
+    allow_rotations: config.allowRotations === true,
+  };
+}
+
+// Total number of objects placed across all live containers.
+function countLivePlaced() {
+  return liveContainers.reduce(
+    (sum, container) => sum + container.placed.length,
+    0
+  );
+}
+
 async function fetchPacking() {
   if (!ensureConfigValidOrNotify()) {
     console.info('🚫 Packing operation aborted: configuration issues.');
@@ -1065,15 +1098,7 @@ async function fetchPacking() {
   // Batch requests can replace an active live view, so flip the UI mode before updating status.
   liveMode = false;
   try {
-    const payload = {
-      containers: config.containers.map((container) => ({
-        name: container.name,
-        dims: container.dims,
-        max_weight: container.maxWeight,
-      })),
-      objects: config.objects,
-      allow_rotations: config.allowRotations === true,
-    };
+    const payload = buildPackRequestPayload();
     setStatus({
       mode: 'Batch',
       phase: 'Packing',
@@ -1172,6 +1197,8 @@ function recomputeLiveDiagnosticsSummary() {
   let worstSupport = 100;
   let supportSum = 0;
   let supportCount = 0;
+  let volumeSum = 0;
+  let weightSum = 0;
 
   diagnosticsList.forEach((diag) => {
     if (Number.isFinite(diag.imbalance_ratio)) {
@@ -1179,6 +1206,12 @@ function recomputeLiveDiagnosticsSummary() {
     }
     if (Number.isFinite(diag.minimum_support_percent)) {
       worstSupport = Math.min(worstSupport, diag.minimum_support_percent);
+    }
+    if (Number.isFinite(diag.volume_utilization_percent)) {
+      volumeSum += diag.volume_utilization_percent;
+    }
+    if (Number.isFinite(diag.weight_utilization_percent)) {
+      weightSum += diag.weight_utilization_percent;
     }
     const samples = Array.isArray(diag.support_samples)
       ? diag.support_samples.filter((sample) =>
@@ -1198,11 +1231,14 @@ function recomputeLiveDiagnosticsSummary() {
   });
 
   const averageSupport = supportCount > 0 ? supportSum / supportCount : 100;
+  const containerCount = diagnosticsList.length;
 
   liveDiagnosticsSummary = {
     max_imbalance_ratio: maxImbalance,
     worst_support_percent: worstSupport,
     average_support_percent: averageSupport,
+    average_volume_utilization_percent: volumeSum / containerCount,
+    average_weight_utilization_percent: weightSum / containerCount,
   };
 }
 
@@ -1240,6 +1276,62 @@ function updateNavigationButtons() {
   document.getElementById('nextContainer').disabled =
     count === 0 || currentContainerIndex === count - 1;
   document.getElementById('animateBtn').disabled = count === 0 || liveMode;
+  const exportBtn = document.getElementById('exportBtn');
+  if (exportBtn) {
+    exportBtn.disabled = count === 0;
+  }
+}
+
+// Returns the currently displayed packing result in a serializable, mode-agnostic shape.
+function getCurrentResult() {
+  if (liveMode) {
+    if (liveContainers.length === 0) return null;
+    return {
+      results: liveContainers,
+      unplaced: liveUnplaced,
+      is_complete: liveUnplaced.length === 0,
+      diagnostics_summary: liveDiagnosticsSummary,
+    };
+  }
+  return packingResults &&
+    Array.isArray(packingResults.results) &&
+    packingResults.results.length > 0
+    ? packingResults
+    : null;
+}
+
+// Downloads the current packing result (plus the configuration that produced it) as JSON.
+function exportResults() {
+  const result = getCurrentResult();
+  if (!result) {
+    showToast('Run a packing operation before exporting results.', 'warning');
+    return;
+  }
+
+  const payload = {
+    exported_at: new Date().toISOString(),
+    mode: liveMode ? 'live' : 'batch',
+    config,
+    result,
+  };
+
+  try {
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `sort-it-now-result-${Date.now()}.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    showToast('Result exported as JSON.', 'success');
+  } catch (error) {
+    console.error('❌ Export failed:', error);
+    showToast('Could not export the result.', 'error');
+  }
 }
 
 function toggleAnimation() {
@@ -1311,6 +1403,7 @@ document.getElementById('nextContainer').addEventListener('click', () => {
 document
   .getElementById('animateBtn')
   .addEventListener('click', toggleAnimation);
+document.getElementById('exportBtn').addEventListener('click', exportResults);
 document.addEventListener('keydown', (event) => {
   const modalOpen =
     document.getElementById('configModal').getAttribute('aria-hidden') ===
@@ -1370,6 +1463,11 @@ document.addEventListener('keydown', (event) => {
   } else if (event.key.toLowerCase() === 'c') {
     event.preventDefault();
     openConfigModal();
+  } else if (event.key.toLowerCase() === 'e') {
+    event.preventDefault();
+    if (!document.getElementById('exportBtn').disabled) {
+      exportResults();
+    }
   }
 });
 window.addEventListener('resize', () => {
@@ -1412,15 +1510,7 @@ function startLivePacking() {
   });
   updateNavigationButtons();
 
-  const payload = {
-    containers: config.containers.map((container) => ({
-      name: container.name,
-      dims: container.dims,
-      max_weight: container.maxWeight,
-    })),
-    objects: config.objects,
-    allow_rotations: config.allowRotations === true,
-  };
+  const payload = buildPackRequestPayload();
 
   const controller = new AbortController();
   liveStreamSessionId += 1;
@@ -1541,10 +1631,7 @@ function handleLiveEvent(evt) {
         phase: 'Streaming',
         level: 'info',
         message: `Container ${liveContainers.length} is now receiving objects.`,
-        placedCount: liveContainers.reduce(
-          (sum, container) => sum + container.placed.length,
-          0
-        ),
+        placedCount: countLivePlaced(),
         containerCount: liveContainers.length,
       });
       break;
@@ -1581,10 +1668,7 @@ function handleLiveEvent(evt) {
         phase: 'Streaming',
         level: 'info',
         message: `Placed object ${evt.id} into container ${evt.container_id}.`,
-        placedCount: liveContainers.reduce(
-          (sum, container) => sum + container.placed.length,
-          0
-        ),
+        placedCount: countLivePlaced(),
         containerCount: liveContainers.length,
       });
       break;
@@ -1615,10 +1699,7 @@ function handleLiveEvent(evt) {
         phase: 'Warning',
         level: 'warning',
         message: `Object ${evt.id} could not be packed and was moved to the unplaced list.`,
-        placedCount: liveContainers.reduce(
-          (sum, container) => sum + container.placed.length,
-          0
-        ),
+        placedCount: countLivePlaced(),
         containerCount: liveContainers.length,
       });
       updateNavigationButtons();
@@ -1644,10 +1725,7 @@ function handleLiveEvent(evt) {
         message: liveUnplaced.length
           ? 'Live packing finished with some unplaced objects.'
           : 'Live packing finished successfully.',
-        placedCount: liveContainers.reduce(
-          (sum, container) => sum + container.placed.length,
-          0
-        ),
+        placedCount: countLivePlaced(),
         containerCount: liveContainers.length,
       });
       showToast(

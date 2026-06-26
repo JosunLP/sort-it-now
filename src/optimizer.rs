@@ -435,6 +435,10 @@ pub struct ContainerDiagnostics {
     pub imbalance_ratio: f64,
     pub average_support_percent: f64,
     pub minimum_support_percent: f64,
+    /// Occupied volume as a percentage of the container volume (0.0 to 100.0).
+    pub volume_utilization_percent: f64,
+    /// Loaded weight as a percentage of the container weight limit (0.0 to 100.0).
+    pub weight_utilization_percent: f64,
     pub support_samples: Vec<SupportDiagnostics>,
 }
 
@@ -444,6 +448,10 @@ pub struct PackingDiagnosticsSummary {
     pub max_imbalance_ratio: f64,
     pub worst_support_percent: f64,
     pub average_support_percent: f64,
+    /// Mean volume utilization across all opened containers (0.0 to 100.0).
+    pub average_volume_utilization_percent: f64,
+    /// Mean weight utilization across all opened containers (0.0 to 100.0).
+    pub average_weight_utilization_percent: f64,
 }
 
 impl Default for PackingDiagnosticsSummary {
@@ -452,6 +460,8 @@ impl Default for PackingDiagnosticsSummary {
             max_imbalance_ratio: 0.0,
             worst_support_percent: 100.0,
             average_support_percent: 100.0,
+            average_volume_utilization_percent: 0.0,
+            average_weight_utilization_percent: 0.0,
         }
     }
 }
@@ -738,12 +748,15 @@ pub fn pack_objects_with_progress(
     let mut unplaced: Vec<UnplacedBox> = Vec::new();
     let mut container_diagnostics: Vec<ContainerDiagnostics> = Vec::new();
 
-    // Platziere jedes Objekt
+    // Place every object in turn.
     'object_loop: for obj in objects {
         let orientations = orientations_for(&obj, config.allow_item_rotation);
 
         for oriented in &orientations {
-            // Versuche, in bestehenden Containern zu platzieren
+            // Try to place into existing containers. The index is needed both to mutate the
+            // container in place and to keep the parallel diagnostics vector and event ids in sync,
+            // so an indexed loop is clearer than iterator gymnastics here.
+            #[allow(clippy::needless_range_loop)]
             for idx in 0..containers.len() {
                 if !containers[idx].can_fit(oriented) {
                     continue;
@@ -787,7 +800,7 @@ pub fn pack_objects_with_progress(
                 }
             }
 
-            // Keine bestehenden Container geeignet, versuche neue Container
+            // No existing container is suitable, so try opening a new container.
             for template in &templates {
                 if !template.can_fit(oriented) {
                     continue;
@@ -889,17 +902,23 @@ fn find_stable_position(
         return None;
     }
 
-    let xs = axis_positions(
+    // Candidate positions combine a coarse grid with the edges of already placed objects.
+    // Edge-anchored placement lets new objects sit flush against existing ones regardless of
+    // grid alignment, which yields tighter packing without depending on a fine grid step.
+    let (x_edges, y_edges) = placed_axis_edges(cont);
+    let xs = candidate_positions(
         cont.dims.0,
         b.dims.0,
         config.grid_step,
         config.general_epsilon,
+        &x_edges,
     );
-    let ys = axis_positions(
+    let ys = candidate_positions(
         cont.dims.1,
         b.dims.1,
         config.grid_step,
         config.general_epsilon,
+        &y_edges,
     );
 
     // Collect all relevant Z-layers (floor + tops of all placed objects)
@@ -1019,6 +1038,52 @@ fn axis_positions(container_len: f64, object_len: f64, step: f64, epsilon: f64) 
     }
 
     positions.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    positions.dedup_by(|a, b| (*a - *b).abs() < epsilon);
+    positions
+}
+
+/// Collects the X and Y edge coordinates of every placed object.
+///
+/// Both the near edge (object position) and the far edge (position + dimension) are returned so a
+/// new object can be placed flush against either side of an existing one.
+fn placed_axis_edges(cont: &Container) -> (Vec<f64>, Vec<f64>) {
+    let mut x_edges = Vec::with_capacity(cont.placed.len() * 2);
+    let mut y_edges = Vec::with_capacity(cont.placed.len() * 2);
+    for p in &cont.placed {
+        x_edges.push(p.position.0);
+        x_edges.push(p.position.0 + p.object.dims.0);
+        y_edges.push(p.position.1);
+        y_edges.push(p.position.1 + p.object.dims.1);
+    }
+    (x_edges, y_edges)
+}
+
+/// Generates candidate positions along an axis by combining the regular grid with edge anchors.
+///
+/// The result is a sorted, de-duplicated superset of [`axis_positions`]: every grid position is
+/// retained, and each in-range edge coordinate is added so objects can be packed flush against
+/// their neighbours. Edges outside the valid `0..=max_pos` range are clamped or skipped.
+fn candidate_positions(
+    container_len: f64,
+    object_len: f64,
+    step: f64,
+    epsilon: f64,
+    edges: &[f64],
+) -> Vec<f64> {
+    let max_pos = (container_len - object_len).max(0.0);
+    let mut positions = axis_positions(container_len, object_len, step, epsilon);
+
+    if max_pos <= epsilon || edges.is_empty() {
+        return positions;
+    }
+
+    for &edge in edges {
+        if edge >= -epsilon && edge <= max_pos + epsilon {
+            positions.push(edge.clamp(0.0, max_pos));
+        }
+    }
+
+    positions.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
     positions.dedup_by(|a, b| (*a - *b).abs() < epsilon);
     positions
 }
@@ -1450,12 +1515,26 @@ pub fn compute_container_diagnostics(
         min_support * 100.0
     };
 
+    let container_volume = cont.total_volume();
+    let volume_utilization_percent = if container_volume > config.general_epsilon {
+        (cont.used_volume() / container_volume * 100.0).clamp(0.0, 100.0)
+    } else {
+        0.0
+    };
+    let weight_utilization_percent = if cont.max_weight > config.general_epsilon {
+        (cont.total_weight() / cont.max_weight * 100.0).max(0.0)
+    } else {
+        0.0
+    };
+
     ContainerDiagnostics {
         center_of_mass_offset: center_offset,
         balance_limit,
         imbalance_ratio,
         average_support_percent,
         minimum_support_percent,
+        volume_utilization_percent,
+        weight_utilization_percent,
         support_samples,
     }
 }
@@ -1465,6 +1544,9 @@ struct SummaryAccumulator {
     worst_support_percent: f64,
     support_percent_sum: f64,
     support_sample_count: usize,
+    volume_utilization_sum: f64,
+    weight_utilization_sum: f64,
+    container_count: usize,
 }
 
 impl SummaryAccumulator {
@@ -1474,6 +1556,9 @@ impl SummaryAccumulator {
             worst_support_percent: 100.0,
             support_percent_sum: 0.0,
             support_sample_count: 0,
+            volume_utilization_sum: 0.0,
+            weight_utilization_sum: 0.0,
+            container_count: 0,
         }
     }
 
@@ -1482,6 +1567,10 @@ impl SummaryAccumulator {
         self.worst_support_percent = self
             .worst_support_percent
             .min(diagnostics.minimum_support_percent);
+
+        self.container_count += 1;
+        self.volume_utilization_sum += diagnostics.volume_utilization_percent;
+        self.weight_utilization_sum += diagnostics.weight_utilization_percent;
 
         let sample_count = diagnostics.support_samples.len();
         if sample_count > 0 {
@@ -1502,10 +1591,23 @@ impl SummaryAccumulator {
             100.0
         };
 
+        let (average_volume_utilization_percent, average_weight_utilization_percent) =
+            if self.container_count > 0 {
+                let count = self.container_count as f64;
+                (
+                    self.volume_utilization_sum / count,
+                    self.weight_utilization_sum / count,
+                )
+            } else {
+                (0.0, 0.0)
+            };
+
         PackingDiagnosticsSummary {
             max_imbalance_ratio: self.max_imbalance_ratio,
             worst_support_percent: self.worst_support_percent,
             average_support_percent,
+            average_volume_utilization_percent,
+            average_weight_utilization_percent,
         }
     }
 }
@@ -1781,8 +1883,10 @@ mod tests {
         };
         let templates = single_blueprint((60.0, 80.0, 40.0), 100.0);
 
-        let mut config = PackingConfig::default();
-        config.allow_item_rotation = false;
+        let mut config = PackingConfig {
+            allow_item_rotation: false,
+            ..Default::default()
+        };
         let result_without_rotation =
             pack_objects_with_config(vec![object.clone()], templates.clone(), config);
         assert_eq!(result_without_rotation.unplaced.len(), 1);
@@ -2005,6 +2109,82 @@ mod tests {
         assert!((summary.average_support_percent - 75.0).abs() < 1e-6);
         assert!((summary.worst_support_percent - 50.0).abs() < 1e-6);
         assert!((summary.max_imbalance_ratio - diagnostics.imbalance_ratio).abs() < 1e-6);
+    }
+
+    #[test]
+    fn candidate_positions_include_placed_edges() {
+        let eps = PackingConfig::DEFAULT_GENERAL_EPSILON;
+
+        // A coarse grid for a width-3 object in a width-10 container yields {0, 5, 7}.
+        let grid = axis_positions(10.0, 3.0, 5.0, eps);
+        assert_eq!(grid, vec![0.0, 5.0, 7.0]);
+
+        // The far edge (x = 3) of an object placed at x = 0 becomes a flush candidate that the
+        // grid alone never offers.
+        let with_edges = candidate_positions(10.0, 3.0, 5.0, eps, &[0.0, 3.0]);
+        assert!(
+            with_edges.iter().any(|&p| (p - 3.0).abs() < eps),
+            "edge 3.0 must be added as a candidate: {:?}",
+            with_edges
+        );
+
+        // Edges outside the placeable range are dropped instead of producing invalid positions.
+        let clamped = candidate_positions(10.0, 3.0, 5.0, eps, &[20.0]);
+        assert!(clamped.iter().all(|&p| p <= 7.0 + eps));
+    }
+
+    #[test]
+    fn edge_anchored_positions_pack_flush_against_neighbours() {
+        let config = PackingConfig::default(); // grid_step = 5.0
+
+        let objects = vec![
+            Box3D::new(1, (3.0, 20.0, 3.0), 1.0).unwrap(),
+            Box3D::new(2, (3.0, 20.0, 3.0), 1.0).unwrap(),
+            Box3D::new(3, (3.0, 20.0, 3.0), 1.0).unwrap(),
+        ];
+
+        let result =
+            pack_objects_with_config(objects, single_blueprint((9.0, 20.0, 3.0), 100.0), config);
+
+        // All three width-3 objects tile flush (x = 0, 3, 6) inside the width-9 container. The
+        // coarse grid alone (positions 0, 5, 6) could only seat two of them and would have opened
+        // a second container, so a single container proves edge-anchored placement is active.
+        assert!(result.unplaced.is_empty());
+        assert_eq!(result.containers.len(), 1);
+        assert_eq!(result.containers[0].placed.len(), 3);
+    }
+
+    #[test]
+    fn diagnostics_report_volume_and_weight_utilization() {
+        let config = PackingConfig::default();
+        let mut container = Container::new((10.0, 10.0, 10.0), 100.0).unwrap();
+
+        container.placed.push(PlacedBox {
+            object: Box3D {
+                id: 1,
+                dims: (10.0, 10.0, 5.0),
+                weight: 40.0,
+            },
+            position: (0.0, 0.0, 0.0),
+        });
+
+        let diagnostics = compute_container_diagnostics(&container, &config);
+
+        // Half the container height is filled (500 of 1000 volume units) and the
+        // load is 40 of the 100 kg weight limit.
+        assert!((diagnostics.volume_utilization_percent - 50.0).abs() < 1e-6);
+        assert!((diagnostics.weight_utilization_percent - 40.0).abs() < 1e-6);
+
+        let summary = summarize_diagnostics(std::iter::once(&diagnostics));
+        assert!((summary.average_volume_utilization_percent - 50.0).abs() < 1e-6);
+        assert!((summary.average_weight_utilization_percent - 40.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn empty_summary_reports_zero_utilization() {
+        let summary = summarize_diagnostics(std::iter::empty());
+        assert_eq!(summary.average_volume_utilization_percent, 0.0);
+        assert_eq!(summary.average_weight_utilization_percent, 0.0);
     }
 
     #[test]

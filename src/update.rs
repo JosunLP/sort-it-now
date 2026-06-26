@@ -62,10 +62,10 @@ impl TempDirCleanup {
     }
 
     fn cleanup(&mut self) {
-        if let Some(dir) = self.dir.take() {
-            if let Err(err) = dir.close() {
-                eprintln!("⚠️ Could not remove temporary directory: {}", err);
-            }
+        if let Some(dir) = self.dir.take()
+            && let Err(err) = dir.close()
+        {
+            eprintln!("⚠️ Could not remove temporary directory: {}", err);
         }
     }
 
@@ -109,7 +109,7 @@ async fn check_for_updates(
     let token = github_token();
     let client = reqwest::Client::builder()
         .timeout(http_timeout())
-        .user_agent(&user_agent())
+        .user_agent(user_agent())
         .build()?;
 
     let url = config.latest_release_endpoint();
@@ -247,16 +247,16 @@ async fn download_and_install_update(
         let mut hasher = Sha256::new();
         let mut temp_dir = TempDirCleanup::new(tempfile::tempdir()?);
 
-        if let (Some(limit_bytes), Some(content_length)) = (limit, response.content_length()) {
-            if content_length > limit_bytes {
-                temp_dir.cleanup();
-                return Err(format!(
-                    "Release asset {} exceeds download limit of {} MB",
-                    asset.name,
-                    limit_bytes / (1024 * 1024)
-                )
-                .into());
-            }
+        if let (Some(limit_bytes), Some(content_length)) = (limit, response.content_length())
+            && content_length > limit_bytes
+        {
+            temp_dir.cleanup();
+            return Err(format!(
+                "Release asset {} exceeds download limit of {} MB",
+                asset.name,
+                limit_bytes / (1024 * 1024)
+            )
+            .into());
         }
 
         let archive_path = temp_dir.path().join(&asset.name);
@@ -267,18 +267,18 @@ async fn download_and_install_update(
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
             downloaded += chunk.len() as u64;
-            if let Some(limit_bytes) = limit {
-                if downloaded > limit_bytes {
-                    drop(file);
-                    let _ = fs::remove_file(&archive_path).await;
-                    temp_dir.cleanup();
-                    return Err(format!(
-                        "Release asset {} exceeds download limit of {} MB",
-                        asset.name,
-                        limit_bytes / (1024 * 1024)
-                    )
-                    .into());
-                }
+            if let Some(limit_bytes) = limit
+                && downloaded > limit_bytes
+            {
+                drop(file);
+                let _ = fs::remove_file(&archive_path).await;
+                temp_dir.cleanup();
+                return Err(format!(
+                    "Release asset {} exceeds download limit of {} MB",
+                    asset.name,
+                    limit_bytes / (1024 * 1024)
+                )
+                .into());
             }
             hasher.update(&chunk);
             file.write_all(&chunk).await?;
@@ -527,7 +527,7 @@ fn is_rate_limit_response(headers: &HeaderMap) -> bool {
         .get("x-ratelimit-remaining")
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.parse::<u64>().ok())
-        .map_or(false, |remaining| remaining == 0)
+        .is_some_and(|remaining| remaining == 0)
 }
 
 fn rate_limit_reset_duration(headers: &HeaderMap) -> Option<Duration> {
@@ -596,22 +596,22 @@ async fn install_on_unix(
     let current_exe = std::env::current_exe()?;
     let install_dir = current_exe
         .parent()
-        .ok_or("Konnte Installationsverzeichnis nicht bestimmen")?
+        .ok_or("Could not determine installation directory")?
         .to_path_buf();
 
     let staged_path = install_dir.join("sort_it_now.tmp");
     let final_path = install_dir.join("sort_it_now");
-    if let Err(err) = fs::remove_file(&staged_path).await {
-        if err.kind() != std::io::ErrorKind::NotFound {
-            return Err(err.into());
-        }
+    if let Err(err) = fs::remove_file(&staged_path).await
+        && err.kind() != std::io::ErrorKind::NotFound
+    {
+        return Err(err.into());
     }
 
     let next_launch_path = install_dir.join("sort_it_now.new");
-    if let Err(err) = fs::remove_file(&next_launch_path).await {
-        if err.kind() != std::io::ErrorKind::NotFound {
-            return Err(err.into());
-        }
+    if let Err(err) = fs::remove_file(&next_launch_path).await
+        && err.kind() != std::io::ErrorKind::NotFound
+    {
+        return Err(err.into());
     }
 
     fs::copy(&binary_path, &staged_path).await?;
@@ -728,10 +728,10 @@ async fn install_on_windows(
                 || matches!(raw, Some(5) | Some(32))
             {
                 let staged_path = install_dir.join("sort_it_now.new.exe");
-                if let Err(remove_err) = fs::remove_file(&staged_path).await {
-                    if remove_err.kind() != std::io::ErrorKind::NotFound {
-                        return Err(remove_err.into());
-                    }
+                if let Err(remove_err) = fs::remove_file(&staged_path).await
+                    && remove_err.kind() != std::io::ErrorKind::NotFound
+                {
+                    return Err(remove_err.into());
                 }
                 fs::copy(&binary_path, &staged_path).await?;
                 println!("⚠️ Could not replace the running application: {}.", err);
