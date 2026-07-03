@@ -85,6 +85,41 @@ impl Drop for TempDirCleanup {
     }
 }
 
+/// How the background updater should behave.
+///
+/// Controlled by the `SORT_IT_NOW_UPDATE_MODE` environment variable:
+/// * `install` (default) — check for a newer release and install it automatically.
+/// * `notify` — check for a newer release but only report it; never download or install.
+/// * `off` — skip the update check entirely.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum UpdateMode {
+    Install,
+    Notify,
+    Off,
+}
+
+fn update_mode() -> UpdateMode {
+    const VAR: &str = "SORT_IT_NOW_UPDATE_MODE";
+    match std::env::var(VAR) {
+        Ok(value) => match value.trim().to_ascii_lowercase().as_str() {
+            "" | "install" | "auto" => UpdateMode::Install,
+            "notify" | "check" => UpdateMode::Notify,
+            "off" | "disabled" | "none" => UpdateMode::Off,
+            other => {
+                eprintln!(
+                    "⚠️ Unknown {VAR} value '{other}'. Expected 'install', 'notify', or 'off'. Using 'install'."
+                );
+                UpdateMode::Install
+            }
+        },
+        Err(std::env::VarError::NotPresent) => UpdateMode::Install,
+        Err(err) => {
+            eprintln!("⚠️ Failed to access {VAR}: {err}. Using 'install'.");
+            UpdateMode::Install
+        }
+    }
+}
+
 /// Launches an asynchronous update check without waiting for completion.
 ///
 /// The returned handle can be awaited if the caller wants to observe
@@ -96,8 +131,14 @@ pub fn check_for_updates_background(update_config: UpdateConfig) -> Option<JoinH
         return None;
     }
 
+    let mode = update_mode();
+    if mode == UpdateMode::Off {
+        println!("ℹ️ Update check disabled (SORT_IT_NOW_UPDATE_MODE=off).");
+        return None;
+    }
+
     Some(tokio::spawn(async move {
-        if let Err(err) = check_for_updates(&update_config).await {
+        if let Err(err) = check_for_updates(&update_config, mode).await {
             eprintln!("⚠️ Update check failed: {err}");
         }
     }))
@@ -105,10 +146,15 @@ pub fn check_for_updates_background(update_config: UpdateConfig) -> Option<JoinH
 
 async fn check_for_updates(
     config: &UpdateConfig,
+    mode: UpdateMode,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let token = github_token();
+    // Use per-phase timeouts (connect + per-read) instead of a total request deadline: a total
+    // deadline of e.g. 30s would abort large release-artifact downloads mid-stream on ordinary
+    // connections, while per-read timeouts still detect stalled transfers.
     let client = reqwest::Client::builder()
-        .timeout(http_timeout())
+        .connect_timeout(http_timeout())
+        .read_timeout(http_timeout())
         .user_agent(user_agent())
         .build()?;
 
@@ -145,6 +191,19 @@ async fn check_for_updates(
         return Err(format!("GitHub API responded with 403 Forbidden: {body}").into());
     }
 
+    // GitHub signals secondary rate limits with 429 + `retry-after`; treat that as a graceful
+    // skip like the primary rate limit above instead of surfacing a scary error.
+    if status == StatusCode::TOO_MANY_REQUESTS {
+        let headers = response.headers().clone();
+        let mut message = String::from("⏱️ GitHub rate limit reached (429). Update check skipped.");
+        let wait = retry_after_duration(&headers).or_else(|| rate_limit_reset_duration(&headers));
+        if let Some(wait) = wait {
+            message.push_str(&format!(" Please try again in {}.", format_wait(wait)));
+        }
+        println!("{message}");
+        return Ok(());
+    }
+
     if status == StatusCode::UNAUTHORIZED {
         eprintln!(
             "⚠️ GitHub rejected the token (401 Unauthorized). Check SORT_IT_NOW_GITHUB_TOKEN or GITHUB_TOKEN."
@@ -176,6 +235,10 @@ async fn check_for_updates(
                 "✨ A new version ({}) is available! Download it at {}.",
                 release.tag_name, release.html_url
             );
+            if mode == UpdateMode::Notify {
+                println!("ℹ️ Automatic installation is disabled (SORT_IT_NOW_UPDATE_MODE=notify).");
+                return Ok(());
+            }
             println!(
                 "🛠️ Preparing automatic update to {} – downloading and installing release artifact.",
                 release.tag_name
@@ -215,6 +278,16 @@ async fn download_and_install_update(
 
     #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
     {
+        // The tag name flows into asset names and filesystem paths below; reject anything that
+        // is not a plain version-like identifier before touching the filesystem with it.
+        if !is_safe_tag(&release.tag_name) {
+            return Err(format!(
+                "Release tag '{}' contains unexpected characters; refusing to install.",
+                release.tag_name
+            )
+            .into());
+        }
+
         let asset_names = expected_asset_names(&release.tag_name);
         let asset = release
             .assets
@@ -234,7 +307,8 @@ async fn download_and_install_update(
         println!("⬇️ Downloading update package {}...", asset.name);
         println!("🔒 Downloading checksum {}...", checksum_asset.name);
 
-        let expected_checksum = fetch_checksum(client, checksum_asset, auth_token).await?;
+        let expected_checksum =
+            fetch_checksum(client, checksum_asset, &asset.name, auth_token).await?;
         println!("🔐 Verifying SHA-256 checksum for {}.", asset.name);
 
         let mut request = client.get(&asset.browser_download_url);
@@ -389,17 +463,40 @@ fn find_checksum_asset<'a>(
         .find(|asset| candidates.iter().any(|candidate| candidate == &asset.name))
 }
 
+/// Validates that a release tag is a plain version-like identifier.
+///
+/// The tag is interpolated into expected asset names and filesystem paths during installation,
+/// so anything beyond alphanumerics, dots, underscores, and hyphens is rejected outright.
+fn is_safe_tag(tag: &str) -> bool {
+    !tag.is_empty()
+        && tag.len() <= 128
+        && tag
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+}
+
 #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
-fn parse_checksum_file(contents: &str) -> Option<String> {
+fn parse_checksum_file(contents: &str, expected_name: &str) -> Option<String> {
     for line in contents.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
-        let hash = trimmed.split_whitespace().next()?;
-        if hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Some(hash.to_ascii_lowercase());
+        let mut fields = trimmed.split_whitespace();
+        let hash = fields.next()?;
+        if hash.len() != 64 || !hash.chars().all(|c| c.is_ascii_hexdigit()) {
+            continue;
         }
+        // `sha256sum`-style files carry the filename as a second field (prefixed with `*` in
+        // binary mode). When present it must match the asset we are verifying, otherwise a
+        // multi-entry checksum file could silently verify the wrong artifact.
+        if let Some(name_field) = fields.next() {
+            let name = name_field.trim_start_matches('*');
+            if name != expected_name {
+                continue;
+            }
+        }
+        return Some(hash.to_ascii_lowercase());
     }
     None
 }
@@ -408,22 +505,50 @@ fn parse_checksum_file(contents: &str) -> Option<String> {
 async fn fetch_checksum(
     client: &reqwest::Client,
     checksum_asset: &ReleaseAsset,
+    expected_asset_name: &str,
     auth_token: Option<&str>,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    /// A checksum file is a few lines of hex digests; anything larger is not a checksum file.
+    const MAX_CHECKSUM_BYTES: usize = 64 * 1024;
+
     let mut request = client.get(&checksum_asset.browser_download_url);
     if let Some(token) = auth_token {
         request = request.bearer_auth(token);
     }
 
     let response = request.send().await?.error_for_status()?;
-    let body = response.text().await?;
-    let expected = parse_checksum_file(&body)
+    if let Some(length) = response.content_length()
+        && length > MAX_CHECKSUM_BYTES as u64
+    {
+        return Err(format!(
+            "Checksum asset {} is unexpectedly large ({} bytes).",
+            checksum_asset.name, length
+        )
+        .into());
+    }
+
+    let mut body = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk?;
+        if body.len() + chunk.len() > MAX_CHECKSUM_BYTES {
+            return Err(format!(
+                "Checksum asset {} exceeds the {} byte limit.",
+                checksum_asset.name, MAX_CHECKSUM_BYTES
+            )
+            .into());
+        }
+        body.extend_from_slice(&chunk);
+    }
+
+    let body = String::from_utf8_lossy(&body);
+    let expected = parse_checksum_file(&body, expected_asset_name)
         .ok_or_else(|| {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 format!(
-                    "Could not find valid SHA-256 checksum in {}.",
-                    checksum_asset.name
+                    "Could not find valid SHA-256 checksum for {} in {}.",
+                    expected_asset_name, checksum_asset.name
                 ),
             )
         })
@@ -530,6 +655,19 @@ fn is_rate_limit_response(headers: &HeaderMap) -> bool {
         .is_some_and(|remaining| remaining == 0)
 }
 
+/// Parses a `retry-after` header given in whole seconds (the form GitHub uses).
+fn retry_after_duration(headers: &HeaderMap) -> Option<Duration> {
+    let seconds = headers
+        .get("retry-after")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.trim().parse::<u64>().ok())?;
+    if seconds == 0 {
+        None
+    } else {
+        Some(Duration::from_secs(seconds))
+    }
+}
+
 fn rate_limit_reset_duration(headers: &HeaderMap) -> Option<Duration> {
     let reset_epoch = headers
         .get("x-ratelimit-reset")
@@ -598,16 +736,23 @@ async fn install_on_unix(
         .parent()
         .ok_or("Could not determine installation directory")?
         .to_path_buf();
+    // Replace the binary that is actually running (whatever it is named) instead of assuming a
+    // hardcoded file name. Otherwise a renamed or repackaged install would receive a new file
+    // next to the old one, report success, and keep running (and re-downloading) the old build.
+    let exe_name = current_exe
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .ok_or("Could not determine executable file name")?;
 
-    let staged_path = install_dir.join("sort_it_now.tmp");
-    let final_path = install_dir.join("sort_it_now");
+    let staged_path = install_dir.join(format!("{exe_name}.tmp"));
+    let final_path = current_exe.clone();
     if let Err(err) = fs::remove_file(&staged_path).await
         && err.kind() != std::io::ErrorKind::NotFound
     {
         return Err(err.into());
     }
 
-    let next_launch_path = install_dir.join("sort_it_now.new");
+    let next_launch_path = install_dir.join(format!("{exe_name}.new"));
     if let Err(err) = fs::remove_file(&next_launch_path).await
         && err.kind() != std::io::ErrorKind::NotFound
     {
@@ -626,8 +771,9 @@ async fn install_on_unix(
             fs::rename(&staged_path, &next_launch_path).await?;
             println!("⚠️ Could not replace the running application: {}.", err);
             println!(
-                "💡 The updated version was saved as {}. Rename it to sort_it_now after a restart.",
-                next_launch_path.display()
+                "💡 The updated version was saved as {}. Rename it to {} after a restart.",
+                next_launch_path.display(),
+                exe_name
             );
             return Ok(());
         }
@@ -698,7 +844,12 @@ async fn install_on_windows(
         .parent()
         .ok_or("Could not determine installation directory")?
         .to_path_buf();
-    let target_path = install_dir.join("sort_it_now.exe");
+    // Replace the binary that is actually running (whatever it is named); see install_on_unix.
+    let exe_name = current_exe
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .ok_or("Could not determine executable file name")?;
+    let target_path = current_exe.clone();
 
     match fs::copy(&binary_path, &target_path).await {
         Ok(_) => {
@@ -719,7 +870,7 @@ async fn install_on_windows(
                 tag_name,
                 install_dir.display()
             );
-            println!("ℹ️ Start the service with: sort_it_now.exe");
+            println!("ℹ️ Start the service with: {exe_name}");
             Ok(())
         }
         Err(err) => {
@@ -727,7 +878,7 @@ async fn install_on_windows(
             if err.kind() == std::io::ErrorKind::PermissionDenied
                 || matches!(raw, Some(5) | Some(32))
             {
-                let staged_path = install_dir.join("sort_it_now.new.exe");
+                let staged_path = install_dir.join(format!("{exe_name}.new"));
                 if let Err(remove_err) = fs::remove_file(&staged_path).await
                     && remove_err.kind() != std::io::ErrorKind::NotFound
                 {
@@ -736,8 +887,9 @@ async fn install_on_windows(
                 fs::copy(&binary_path, &staged_path).await?;
                 println!("⚠️ Could not replace the running application: {}.", err);
                 println!(
-                    "💡 The updated version was saved as {}. Rename it to sort_it_now.exe after a restart.",
-                    staged_path.display()
+                    "💡 The updated version was saved as {}. Rename it to {} after a restart.",
+                    staged_path.display(),
+                    exe_name
                 );
                 Ok(())
             } else {
@@ -760,13 +912,108 @@ async fn copy_readme_if_present(bundle_dir: &Path, install_dir: &Path) {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn safe_tags_accept_version_like_identifiers() {
+        assert!(is_safe_tag("v1.4.0"));
+        assert!(is_safe_tag("1.4.0-rc.1"));
+        assert!(is_safe_tag("release_2026-07-03"));
+    }
+
+    #[test]
+    fn unsafe_tags_are_rejected() {
+        assert!(!is_safe_tag(""));
+        assert!(!is_safe_tag("../../etc"));
+        assert!(!is_safe_tag("v1.0/evil"));
+        assert!(!is_safe_tag("v1.0 evil"));
+        assert!(!is_safe_tag(&"a".repeat(129)));
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+    #[test]
+    fn checksum_parser_accepts_bare_hash() {
+        let hash = "a".repeat(64);
+        assert_eq!(
+            parse_checksum_file(&hash, "artifact.tar.gz"),
+            Some(hash.clone())
+        );
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+    #[test]
+    fn checksum_parser_matches_filename_in_multi_entry_files() {
+        let contents = format!(
+            "# comment\n{}  other-file.tar.gz\n{}  *artifact.tar.gz\n",
+            "b".repeat(64),
+            "c".repeat(64)
+        );
+        // The entry for the requested artifact wins, not the first syntactically valid hash.
+        assert_eq!(
+            parse_checksum_file(&contents, "artifact.tar.gz"),
+            Some("c".repeat(64))
+        );
+        assert_eq!(parse_checksum_file(&contents, "missing.tar.gz"), None);
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+    #[test]
+    fn checksum_parser_normalizes_case_and_skips_invalid_lines() {
+        let contents = format!("not-a-hash\n{}  artifact.tar.gz\n", "AB".repeat(32));
+        assert_eq!(
+            parse_checksum_file(&contents, "artifact.tar.gz"),
+            Some("ab".repeat(32))
+        );
+    }
+
+    #[test]
+    fn retry_after_header_parses_whole_seconds() {
+        let mut headers = HeaderMap::new();
+        headers.insert("retry-after", "120".parse().unwrap());
+        assert_eq!(
+            retry_after_duration(&headers),
+            Some(Duration::from_secs(120))
+        );
+
+        headers.insert("retry-after", "0".parse().unwrap());
+        assert_eq!(retry_after_duration(&headers), None);
+
+        headers.insert("retry-after", "soon".parse().unwrap());
+        assert_eq!(retry_after_duration(&headers), None);
+    }
+
+    #[test]
+    fn format_wait_renders_compound_durations() {
+        assert_eq!(format_wait(Duration::from_secs(0)), "0s");
+        assert_eq!(format_wait(Duration::from_secs(61)), "1m 1s");
+        assert_eq!(format_wait(Duration::from_secs(3661)), "1h 1m 1s");
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn ensure_windows_path(install_dir: &Path) -> Result<bool, std::io::Error> {
-    use winreg::RegKey;
-    use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_WRITE};
+    use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_WRITE, REG_EXPAND_SZ, REG_SZ};
+    use winreg::{RegKey, RegValue};
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let env = hkcu.open_subkey_with_flags("Environment", KEY_READ | KEY_WRITE)?;
+
+    // The user PATH is conventionally REG_EXPAND_SZ (it may contain %VAR% references). Preserve
+    // the existing value type when rewriting: writing it back as plain REG_SZ would stop those
+    // references from being expanded and silently corrupt the user's PATH.
+    let existing = env.get_raw_value("Path").ok();
+    let value_type = existing
+        .as_ref()
+        .map(|value| value.vtype.clone())
+        .unwrap_or(REG_EXPAND_SZ);
+    if !matches!(value_type, REG_SZ | REG_EXPAND_SZ) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "user PATH registry value has an unexpected type; not modifying it",
+        ));
+    }
 
     let current: String = env.get_value("Path").unwrap_or_default();
     let install_str = install_dir.to_string_lossy();
@@ -785,6 +1032,18 @@ fn ensure_windows_path(install_dir: &Path) -> Result<bool, std::io::Error> {
         format!("{};{}", current, install_str)
     };
 
-    env.set_value("Path", &new_path)?;
+    // Encode as null-terminated UTF-16LE, the on-disk representation of both string types.
+    let bytes: Vec<u8> = new_path
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    env.set_raw_value(
+        "Path",
+        &RegValue {
+            bytes,
+            vtype: value_type,
+        },
+    )?;
     Ok(true)
 }

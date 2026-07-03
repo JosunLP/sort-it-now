@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-07-03
+
+### Added
+
+- **Cooperative cancellation** (`optimizer::pack_objects_with_cancellation`): streaming callers can abort a running packing computation. The SSE `/pack_stream` endpoint uses it to stop the computation as soon as the client disconnects instead of burning CPU on a result nobody will receive.
+- **Update modes**: `SORT_IT_NOW_UPDATE_MODE` selects `install` (default, current behaviour), `notify` (report new releases but never download/install), or `off` (skip the check entirely).
+- New unit tests for orientation search, grid capping, cancellation, checksum parsing, tag validation, rate-limit parsing, and CLI argument handling (**101 tests** total: 89 unit + 10 integration + 2 doc-tests).
+
+### Fixed
+
+- **Optimizer — unnecessary containers with rotations enabled**: the search tried each orientation against existing containers *and templates* before moving to the next orientation, so an object whose first orientation only fit a fresh container opened one even when a later orientation fit an existing container. All orientations are now tried across every existing container before the smallest fitting template is opened.
+- **Denial-of-service via huge container dimensions**: the position grid per axis is now capped at `PackingConfig::MAX_AXIS_GRID_POSITIONS` (512); the effective step widens automatically so the axis stays fully covered. Previously a request with e.g. a 10⁹-unit container enumerated hundreds of millions of candidate positions and effectively hung the service; the same request now answers in milliseconds.
+- **Updater**: total request timeout (default 30 s) aborted large artifact downloads mid-stream — replaced with connect/read timeouts; multi-entry checksum files could verify the wrong artifact's hash — the filename field is now matched; HTTP 429 (secondary rate limit) is handled gracefully like 403 rate limits; release tags are validated before being used in file paths; checksum downloads are capped at 64 KB; the installer now replaces the binary that is actually running instead of a hardcoded `sort_it_now` filename; the Windows PATH registry value keeps its `REG_EXPAND_SZ` type instead of being rewritten as `REG_SZ` (which silently broke `%VAR%` entries).
+- **CLI**: extra arguments to `pack` are rejected instead of silently ignored, unknown flags error out, and `pack --help` prints usage.
+- **Web UI**: arrow-key navigation now stops a running animation (previously the stale interval kept redrawing the old container over the new one); Space no longer hijacks focused buttons (keyboard accessibility); batch `/pack` requests get the same supersede/abort protection as the live stream, so a slow older response can never overwrite a newer run's state; utilization/packaging stats during step animation are computed over the same height-sorted subset that is actually drawn; a run with zero filled containers clears the previous scene; removed the dead "Center of Mass: (0, 0, 0)" placeholder.
+
+### Improved
+
+- **Optimizer performance (~5× on a 400-object workload, identical results)**: the per-candidate balance computation is O(1) via precomputed weighted sums; collision and support checks scan per-Z-layer prefiltered subsets instead of all placed objects; the layer loop exits early once no better layer can win; ceiling checks break out of the sorted layer loop instead of continuing.
+
 ## [1.4.0] - 2026-06-26
 
 ### Added

@@ -27,7 +27,7 @@ use crate::config::{ApiConfig, OptimizerConfig, RequestLimits};
 use crate::model::{Box3D, Container, ContainerBlueprint, ValidationError};
 use crate::optimizer::{
     ContainerDiagnostics, PackingConfig, PackingDiagnosticsSummary, PackingResult,
-    SupportDiagnostics, pack_objects_with_config, pack_objects_with_progress,
+    SupportDiagnostics, pack_objects_with_cancellation, pack_objects_with_config,
 };
 use crate::packaging::{PackagingFill, PackagingSummary};
 
@@ -717,13 +717,27 @@ async fn handle_pack_stream(
     }
 
     tokio::task::spawn_blocking(move || {
-        let _ = pack_objects_with_progress(objects, container_blueprints, packing_config, |evt| {
-            if let Ok(json) = serde_json::to_string(evt) {
-                // A send error means the receiver has closed the stream; remaining events
-                // are simply discarded on subsequent callback invocations.
-                let _ = tx.blocking_send(json);
-            }
-        });
+        let events_tx = tx.clone();
+        // When the client disconnects, the receiver side of the channel is dropped and
+        // `is_closed` flips to true; the cancellation hook then stops the packing computation
+        // instead of letting it run to completion for a result nobody will receive.
+        let cancelled = pack_objects_with_cancellation(
+            objects,
+            container_blueprints,
+            packing_config,
+            |evt| {
+                if let Ok(json) = serde_json::to_string(evt) {
+                    // A send error means the receiver has closed the stream; remaining events
+                    // are simply discarded on subsequent callback invocations.
+                    let _ = events_tx.blocking_send(json);
+                }
+            },
+            || tx.is_closed(),
+        )
+        .is_none();
+        if cancelled {
+            println!("🛑 Pack stream cancelled: client disconnected before completion");
+        }
     });
 
     let stream = ReceiverStream::new(rx)

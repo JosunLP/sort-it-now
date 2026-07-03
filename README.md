@@ -17,6 +17,8 @@ An intelligent 3D packing optimization service with interactive visualization.
 - **Per-container and aggregate utilization metrics** (volume and weight) reported in every response and stream
 - **Packaging-material estimation**: the void (empty) volume of every finished container that must be filled with cushioning material, reported per container and aggregated per shipment
 - **Configurable request guardrails** (max objects / container types per request) returning clear `422` errors
+- **Bounded position search**: the per-axis placement grid is capped (512 positions), so even adversarially huge container dimensions cannot stall the service
+- **Cooperative cancellation**: live-stream packing stops immediately when the SSE client disconnects
 - **Background GitHub release updater** with checksum verification and configurable rate-limit handling
 - **Native release installers** for Linux (`.deb`), macOS (`.pkg`), and Windows (`.msix`)
 - **Reusable library crate** plus an **offline CLI** (`pack` subcommand) sharing the same engine as the HTTP API
@@ -153,16 +155,16 @@ The install scripts detect supported platforms and download the latest matching 
   irm "https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/uninstall.ps1" | iex
   ```
 
-To install a specific version instead of the latest release, set the environment variable `SORT_IT_NOW_VERSION` to a release tag (for example `v1.4.0`):
+To install a specific version instead of the latest release, set the environment variable `SORT_IT_NOW_VERSION` to a release tag (for example `v1.5.0`):
 
 ```bash
 # Linux / macOS (when installing with sudo, preserve the pinned version variable)
-curl -fsSL https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/install.sh | sudo env SORT_IT_NOW_VERSION=v1.4.0 bash
+curl -fsSL https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/install.sh | sudo env SORT_IT_NOW_VERSION=v1.5.0 bash
 ```
 
 ```powershell
 # Windows
-$env:SORT_IT_NOW_VERSION="v1.4.0"; irm "https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/install.ps1" | iex
+$env:SORT_IT_NOW_VERSION="v1.5.0"; irm "https://raw.githubusercontent.com/JosunLP/sort-it-now/main/scripts/install.ps1" | iex
 ```
 
 If you prefer to review the script before execution, you can still download it manually first.
@@ -217,9 +219,10 @@ The server is then available at `http://localhost:8080`.
 
 ## 🔔 Automatic Updates on Startup
 
-On startup, the service checks for the latest GitHub releases (`JosunLP/sort-it-now`) in the background. If a newer version is found, the updater downloads the archive package matching the current platform and updates the installed binary in place. Native installers (`.deb`, `.pkg`, `.msix`) are published alongside the archive assets for manual installation flows. On Windows, if `sort_it_now.exe` is locked, a `sort_it_now.new.exe` is placed instead.
+On startup, the service checks for the latest GitHub releases (`JosunLP/sort-it-now`) in the background. If a newer version is found, the updater downloads the archive package matching the current platform and replaces the running binary in place (whatever it is named). Native installers (`.deb`, `.pkg`, `.msix`) are published alongside the archive assets for manual installation flows. On Windows, if the running executable is locked, a `<name>.new` file is placed next to it instead.
 
-- The check can be disabled via the environment variable `SORT_IT_NOW_SKIP_UPDATE_CHECK=1` (e.g., for offline installations or CI).
+- `SORT_IT_NOW_UPDATE_MODE` selects the behaviour: `install` (default) downloads and installs automatically, `notify` only reports that a new release exists, and `off` skips the check entirely.
+- The check can also be disabled via the environment variable `SORT_IT_NOW_SKIP_UPDATE_CHECK=1` (e.g., for offline installations or CI).
 - GitHub limits unauthenticated API calls to 60 per hour. If the limit is reached, the check is skipped and info is displayed. Optionally set `SORT_IT_NOW_GITHUB_TOKEN` (or `GITHUB_TOKEN`) to a Personal Access Token to get higher limits; the updater also uses the token when downloading release artifacts.
 - To avoid unexpectedly large downloads, the updater limits release artifacts to 200 MB by default. Adjust the limit via `SORT_IT_NOW_MAX_DOWNLOAD_MB` (value `0` disables the limit).
 - Repo/owner and timeout can be configured via `SORT_IT_NOW_GITHUB_OWNER`, `SORT_IT_NOW_GITHUB_REPO`, and `SORT_IT_NOW_HTTP_TIMEOUT_SECS` – defaults apply automatically if no `.env` is present.
@@ -436,10 +439,11 @@ The application optionally loads a `.env` file on startup (using [`dotenvy`](htt
 | `SORT_IT_NOW_MAX_CONTAINERS`                | `1000`        | Maximum container types accepted per request (0 = unlimited). Exceeding it returns `422`.                          |
 | `SORT_IT_NOW_GITHUB_OWNER`                  | `JosunLP`     | GitHub owner/organization whose releases are queried for updates.                                                  |
 | `SORT_IT_NOW_GITHUB_REPO`                   | `sort-it-now` | Repository name for the updater.                                                                                   |
-| `SORT_IT_NOW_HTTP_TIMEOUT_SECS`             | `30`          | Timeout in seconds for GitHub HTTP requests by the updater.                                                        |
+| `SORT_IT_NOW_HTTP_TIMEOUT_SECS`             | `30`          | Connect/read timeout in seconds for the updater's GitHub requests (downloads are not cut off).                     |
 | `SORT_IT_NOW_MAX_DOWNLOAD_MB`               | `200`         | Maximum size of a release asset (0 = unlimited).                                                                   |
 | `SORT_IT_NOW_GITHUB_TOKEN` / `GITHUB_TOKEN` | –             | Optional PAT for higher GitHub rate limits and private releases.                                                   |
 | `SORT_IT_NOW_SKIP_UPDATE_CHECK`             | –             | If set (any value), disables automatic update check.                                                               |
+| `SORT_IT_NOW_UPDATE_MODE`                   | `install`     | Update behaviour: `install` (download + install), `notify` (report only), or `off` (skip).                         |
 | `SORT_IT_NOW_PACKING_GRID_STEP`             | `5.0`         | ⚠️ Position grid step size; smaller values give finer placement but slow down and may cause unstable arrangements. |
 | `SORT_IT_NOW_PACKING_SUPPORT_RATIO`         | `0.6`         | ⚠️ Minimum support ratio for stable stacking; lower values increase tipping risk.                                  |
 | `SORT_IT_NOW_PACKING_HEIGHT_EPSILON`        | `1e-3`        | ⚠️ Tolerance for height comparisons; values too large or small affect stability checks.                            |

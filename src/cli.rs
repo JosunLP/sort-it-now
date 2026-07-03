@@ -67,7 +67,24 @@ where
             println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
             CliOutcome::Handled
         }
-        "pack" => run_pack_command(args.get(1).map(String::as_str)),
+        "pack" => {
+            if args.len() > 2 {
+                return CliOutcome::Failed(
+                    "Too many arguments for 'pack'. Usage: sort_it_now pack [FILE]".to_string(),
+                );
+            }
+            match args.get(1).map(String::as_str) {
+                Some("-h") | Some("--help") => {
+                    print!("{HELP_TEXT}");
+                    CliOutcome::Handled
+                }
+                // Reject unknown flags instead of treating them as file names ('-' = stdin).
+                Some(flag) if flag.starts_with('-') && flag != "-" => CliOutcome::Failed(format!(
+                    "Unknown option '{flag}' for 'pack'. Usage: sort_it_now pack [FILE]"
+                )),
+                source => run_pack_command(source),
+            }
+        }
         other => CliOutcome::Failed(format!(
             "Unknown subcommand '{other}'. Run 'sort_it_now --help' for usage."
         )),
@@ -177,6 +194,36 @@ mod tests {
         assert!(matches!(
             run(vec!["frobnicate".to_string()]),
             CliOutcome::Failed(_)
+        ));
+    }
+
+    #[test]
+    fn run_pack_with_extra_arguments_fails() {
+        // Extra arguments must not be silently ignored: `pack a.json b.json` packing only
+        // `a.json` would be surprising and error-prone.
+        assert!(matches!(
+            run(vec![
+                "pack".to_string(),
+                "a.json".to_string(),
+                "b.json".to_string()
+            ]),
+            CliOutcome::Failed(_)
+        ));
+    }
+
+    #[test]
+    fn run_pack_with_unknown_flag_fails() {
+        assert!(matches!(
+            run(vec!["pack".to_string(), "--frobnicate".to_string()]),
+            CliOutcome::Failed(_)
+        ));
+    }
+
+    #[test]
+    fn run_pack_help_is_handled() {
+        assert!(matches!(
+            run(vec!["pack".to_string(), "--help".to_string()]),
+            CliOutcome::Handled
         ));
     }
 }
