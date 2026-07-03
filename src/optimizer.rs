@@ -41,6 +41,11 @@
 //! - **grid_step**: Smaller values → more accurate, but O(n²) slower
 //! - **allow_item_rotation**: 6× more orientations → 6× more checks
 //! - Complexity: O(n × p × z) with n=objects, p=positions, z=Z-layers
+//! - The grid is capped at [`PackingConfig::MAX_AXIS_GRID_POSITIONS`] positions per axis, so
+//!   pathological container dimensions cannot blow up the search space
+//! - Per-candidate work is kept small: balance updates are O(1) via precomputed sums, and
+//!   collision/support checks only scan the placed objects that interact with the candidate's
+//!   Z-layer
 //!
 //! ## Example
 //!
@@ -58,7 +63,7 @@
 
 use std::cmp::Ordering;
 
-use crate::geometry::{intersects, overlap_1d, point_inside};
+use crate::geometry::{overlap_1d, point_inside};
 use crate::model::{Box3D, Container, ContainerBlueprint, PlacedBox};
 use crate::packaging::{PackagingAccumulator, PackagingFill, PackagingSummary};
 use crate::types::Dimensional;
@@ -87,6 +92,15 @@ pub struct PackingConfig {
 
 impl PackingConfig {
     pub const DEFAULT_GRID_STEP: f64 = 5.0;
+    /// Upper bound on the number of grid positions generated per axis.
+    ///
+    /// Without this cap, a request combining a huge container dimension with the configured
+    /// `grid_step` (e.g. a container that is 10⁹ units wide at the default step of 5) would
+    /// force the position search to enumerate hundreds of millions of candidates — an easy
+    /// denial-of-service vector for the public `/pack` endpoints. When the cap is hit, the
+    /// effective step size is widened so the whole axis is still covered; edge-anchored
+    /// candidates (flush against already placed objects) are unaffected.
+    pub const MAX_AXIS_GRID_POSITIONS: usize = 512;
     pub const DEFAULT_SUPPORT_RATIO: f64 = 0.6;
     pub const DEFAULT_HEIGHT_EPSILON: f64 = 1e-3;
     pub const DEFAULT_GENERAL_EPSILON: f64 = 1e-6;
@@ -687,20 +701,40 @@ pub fn pack_objects_with_progress(
     objects: Vec<Box3D>,
     container_templates: Vec<ContainerBlueprint>,
     config: PackingConfig,
-    mut on_event: impl FnMut(&PackEvent),
+    on_event: impl FnMut(&PackEvent),
 ) -> PackingResult {
+    pack_objects_with_cancellation(objects, container_templates, config, on_event, || false)
+        .expect("packing without a cancellation signal always completes")
+}
+
+/// Packing with custom configuration, live progress callback, and cooperative cancellation.
+///
+/// `is_cancelled` is polled once per object. When it returns `true`, packing stops immediately
+/// and `None` is returned without emitting a `Finished` event. This lets streaming callers
+/// (e.g. the SSE endpoint) abort expensive computations as soon as the client disconnects
+/// instead of burning CPU on a result nobody will receive.
+///
+/// # Returns
+/// `Some(PackingResult)` when packing ran to completion, `None` when it was cancelled.
+pub fn pack_objects_with_cancellation(
+    objects: Vec<Box3D>,
+    container_templates: Vec<ContainerBlueprint>,
+    config: PackingConfig,
+    mut on_event: impl FnMut(&PackEvent),
+    mut is_cancelled: impl FnMut() -> bool,
+) -> Option<PackingResult> {
     if objects.is_empty() {
         on_event(&PackEvent::Finished {
             containers: 0,
             unplaced: 0,
             diagnostics_summary: PackingDiagnosticsSummary::default(),
         });
-        return PackingResult {
+        return Some(PackingResult {
             containers: Vec::new(),
             unplaced: Vec::new(),
             container_diagnostics: Vec::new(),
             diagnostics_summary: PackingDiagnosticsSummary::default(),
-        };
+        });
     }
 
     if container_templates.is_empty() {
@@ -723,12 +757,12 @@ pub fn pack_objects_with_progress(
             unplaced: unplaced.len(),
             diagnostics_summary: PackingDiagnosticsSummary::default(),
         });
-        return PackingResult {
+        return Some(PackingResult {
             containers: Vec::new(),
             unplaced,
             container_diagnostics: Vec::new(),
             diagnostics_summary: PackingDiagnosticsSummary::default(),
-        };
+        });
     }
 
     let config = config.sanitized();
@@ -758,121 +792,110 @@ pub fn pack_objects_with_progress(
     let mut container_diagnostics: Vec<ContainerDiagnostics> = Vec::new();
 
     // Place every object in turn.
-    'object_loop: for obj in objects {
+    for obj in objects {
+        // Cooperative cancellation: streaming callers can stop the computation as soon as the
+        // consumer of the events goes away.
+        if is_cancelled() {
+            return None;
+        }
+
         let orientations = orientations_for(&obj, config.allow_item_rotation);
 
-        for oriented in &orientations {
-            // Try to place into existing containers. The index is needed both to mutate the
-            // container in place and to keep the parallel diagnostics vector and event ids in sync,
-            // so an indexed loop is clearer than iterator gymnastics here.
-            #[allow(clippy::needless_range_loop)]
-            for idx in 0..containers.len() {
-                if !containers[idx].can_fit(oriented) {
-                    continue;
-                }
+        // Search for a target container (index) together with the winning orientation and
+        // position. Every existing container is tried with every orientation before a new
+        // container is opened, so an object that only fits an existing container in a rotated
+        // orientation never forces an unnecessary extra container.
+        let mut placement: Option<(usize, Box3D, (f64, f64, f64))> = None;
 
-                if let Some(position) = find_stable_position(oriented, &containers[idx], &config) {
-                    containers[idx].placed.push(PlacedBox {
-                        object: oriented.clone(),
-                        position,
-                    });
-                    let total_w = containers[idx].total_weight();
-                    let placed = containers[idx]
-                        .placed
-                        .last()
-                        .expect("missing placed object after insertion");
-                    on_event(&PackEvent::ObjectPlaced {
-                        container_id: idx + 1,
-                        id: placed.object.id,
-                        pos: placed.position,
-                        weight: placed.object.weight,
-                        dims: placed.object.dims,
-                        total_weight: total_w,
-                    });
-                    let diagnostics = compute_container_diagnostics(&containers[idx], &config);
-                    if let Some(slot) = container_diagnostics.get_mut(idx) {
-                        *slot = diagnostics.clone();
-                    } else if idx == container_diagnostics.len() {
-                        container_diagnostics.push(diagnostics.clone());
-                    } else {
-                        panic!(
-                            "diagnostics vector out of sync with containers (idx = {}, len = {})",
-                            idx,
-                            container_diagnostics.len()
-                        );
+        'search: {
+            for (idx, container) in containers.iter().enumerate() {
+                for oriented in &orientations {
+                    if !container.can_fit(oriented) {
+                        continue;
                     }
-                    on_event(&PackEvent::ContainerDiagnostics {
-                        container_id: idx + 1,
-                        diagnostics,
-                    });
-                    continue 'object_loop;
+                    if let Some(position) = find_stable_position(oriented, container, &config) {
+                        placement = Some((idx, oriented.clone(), position));
+                        break 'search;
+                    }
                 }
             }
 
-            // No existing container is suitable, so try opening a new container.
+            // No existing container is suitable: open the smallest template (templates are
+            // sorted ascending by volume) that accepts any orientation of the object.
             for template in &templates {
-                if !template.can_fit(oriented) {
-                    continue;
-                }
-
-                let mut new_container = template.instantiate();
-                if let Some(position) = find_stable_position(oriented, &new_container, &config) {
-                    let new_id = containers.len() + 1;
-                    let dims = new_container.dims;
-                    let max_weight = new_container.max_weight;
-                    let label = new_container.label.clone();
-                    let template_id = new_container.template_id;
-                    on_event(&PackEvent::ContainerStarted {
-                        id: new_id,
-                        dims,
-                        max_weight,
-                        label,
-                        template_id,
-                    });
-
-                    new_container.placed.push(PlacedBox {
-                        object: oriented.clone(),
-                        position,
-                    });
-                    let total_w = new_container.total_weight();
-                    containers.push(new_container);
-                    let placed = containers
-                        .last()
-                        .and_then(|c| c.placed.last())
-                        .expect("missing newly placed box");
-                    on_event(&PackEvent::ObjectPlaced {
-                        container_id: new_id,
-                        id: placed.object.id,
-                        pos: placed.position,
-                        weight: placed.object.weight,
-                        dims: placed.object.dims,
-                        total_weight: total_w,
-                    });
-                    let diagnostics = containers
-                        .last()
-                        .map(|c| compute_container_diagnostics(c, &config))
-                        .expect("missing container for diagnostics");
-                    container_diagnostics.push(diagnostics.clone());
-                    on_event(&PackEvent::ContainerDiagnostics {
-                        container_id: new_id,
-                        diagnostics,
-                    });
-                    continue 'object_loop;
+                for oriented in &orientations {
+                    if !template.can_fit(oriented) {
+                        continue;
+                    }
+                    let new_container = template.instantiate();
+                    if let Some(position) = find_stable_position(oriented, &new_container, &config)
+                    {
+                        on_event(&PackEvent::ContainerStarted {
+                            id: containers.len() + 1,
+                            dims: new_container.dims,
+                            max_weight: new_container.max_weight,
+                            label: new_container.label.clone(),
+                            template_id: new_container.template_id,
+                        });
+                        containers.push(new_container);
+                        placement = Some((containers.len() - 1, oriented.clone(), position));
+                        break 'search;
+                    }
                 }
             }
         }
 
-        let reason = determine_unfit_reason_across_templates(&templates, &obj, &config);
-        on_event(&PackEvent::ObjectRejected {
-            id: obj.id,
-            weight: obj.weight,
-            dims: obj.dims,
-            reason_code: reason.code().to_string(),
-            reason_text: reason.to_string(),
+        let Some((idx, oriented, position)) = placement else {
+            let reason = determine_unfit_reason_across_templates(&templates, &obj, &config);
+            on_event(&PackEvent::ObjectRejected {
+                id: obj.id,
+                weight: obj.weight,
+                dims: obj.dims,
+                reason_code: reason.code().to_string(),
+                reason_text: reason.to_string(),
+            });
+            unplaced.push(UnplacedBox {
+                object: obj,
+                reason,
+            });
+            continue;
+        };
+
+        // Shared placement path for existing and freshly opened containers: record the object,
+        // then emit the placement and refreshed diagnostics events.
+        containers[idx].placed.push(PlacedBox {
+            object: oriented,
+            position,
         });
-        unplaced.push(UnplacedBox {
-            object: obj,
-            reason,
+        let total_weight = containers[idx].total_weight();
+        let placed = containers[idx]
+            .placed
+            .last()
+            .expect("missing placed object after insertion");
+        on_event(&PackEvent::ObjectPlaced {
+            container_id: idx + 1,
+            id: placed.object.id,
+            pos: placed.position,
+            weight: placed.object.weight,
+            dims: placed.object.dims,
+            total_weight,
+        });
+
+        let diagnostics = compute_container_diagnostics(&containers[idx], &config);
+        debug_assert!(
+            idx <= container_diagnostics.len(),
+            "diagnostics vector out of sync with containers (idx = {}, len = {})",
+            idx,
+            container_diagnostics.len()
+        );
+        if let Some(slot) = container_diagnostics.get_mut(idx) {
+            *slot = diagnostics.clone();
+        } else {
+            container_diagnostics.push(diagnostics.clone());
+        }
+        on_event(&PackEvent::ContainerDiagnostics {
+            container_id: idx + 1,
+            diagnostics,
         });
     }
 
@@ -882,12 +905,12 @@ pub fn pack_objects_with_progress(
         unplaced: unplaced.len(),
         diagnostics_summary: diagnostics_summary.clone(),
     });
-    PackingResult {
+    Some(PackingResult {
         containers,
         unplaced,
         container_diagnostics,
         diagnostics_summary,
-    }
+    })
 }
 
 /// Finds a stable position for an object in a container.
@@ -942,13 +965,44 @@ fn find_stable_position(
 
     let balance_limit = calculate_balance_limit(cont, config);
     let current_balance = calculate_current_balance_offset(cont);
+    // The weighted center-of-mass sums over the already placed objects are identical for every
+    // candidate, so they are accumulated once and each candidate only adds its own contribution.
+    // This turns the per-candidate balance computation from O(placed) into O(1).
+    let balance_state = BalanceState::from_container(cont);
+    let container_center = container_center_xy(cont);
 
     let mut best_in_limit: Option<((f64, f64, f64), PlacementScore)> = None;
     let mut best_any: Option<((f64, f64, f64), PlacementScore)> = None;
 
     for &z in &z_layers {
+        // The score prefers strictly lower layers, so once an in-limit candidate exists no
+        // strictly higher layer can ever produce a better final result — stop searching.
+        if let Some((_, score)) = &best_in_limit
+            && z > score.z + config.height_epsilon
+        {
+            break;
+        }
+
+        // Layers are sorted ascending; once the object no longer fits below the ceiling,
+        // no later layer can fit either.
         if z + b.dims.2 > cont.dims.2 + config.general_epsilon {
-            continue;
+            break;
+        }
+
+        // Prefilter the placed objects that can interact with this Z-layer at all: potential
+        // colliders overlap the slab [z, z + height), potential supporters have their top face
+        // at z. Every candidate on this layer then only scans these two small subsets instead
+        // of the full container contents.
+        let mut slab_colliders: Vec<&PlacedBox> = Vec::new();
+        let mut supporters: Vec<&PlacedBox> = Vec::new();
+        for p in &cont.placed {
+            let p_top = p.position.2 + p.object.dims.2;
+            if p.position.2 < z + b.dims.2 && p_top > z {
+                slab_colliders.push(p);
+            }
+            if (z - p_top).abs() <= config.height_epsilon {
+                supporters.push(p);
+            }
         }
 
         for &y in &ys {
@@ -961,18 +1015,25 @@ fn find_stable_position(
                     continue;
                 }
 
+                // Collision check against the slab subset. The Z overlap is already guaranteed
+                // by the slab filter, so only the XY axes remain to be separated.
+                let collides = slab_colliders.iter().any(|p| {
+                    let (px, py, _) = p.position;
+                    let (pw, pd, _) = p.object.dims;
+                    !(px + pw <= x || x + b.dims.0 <= px || py + pd <= y || y + b.dims.1 <= py)
+                });
+                if collides {
+                    continue;
+                }
+
                 let candidate = PlacedBox {
                     object: b.clone(),
                     position: (x, y, z),
                 };
 
-                // Check for collisions
-                if cont.placed.iter().any(|p| intersects(p, &candidate)) {
-                    continue;
-                }
-
                 // For placement above the floor: Check stability
-                let support_analysis = analyze_support_surface(&candidate, cont, config);
+                let support_analysis =
+                    analyze_support_surface_over(&candidate, &supporters, config);
                 if z > 0.0 {
                     let required_support = (config.support_ratio - config.general_epsilon).max(0.0);
                     if support_analysis.support_ratio < required_support {
@@ -989,7 +1050,12 @@ fn find_stable_position(
 
                 let stability =
                     simulate_static_stability_from_analysis(&candidate, config, support_analysis);
-                let balance = calculate_balance_after(cont, &candidate);
+                let balance = balance_state.offset_with(
+                    x + b.dims.0 / 2.0,
+                    y + b.dims.1 / 2.0,
+                    b.weight,
+                    container_center,
+                );
                 let score = PlacementScore {
                     z,
                     instability: stability.instability_score,
@@ -1014,9 +1080,54 @@ fn find_stable_position(
     best_in_limit.or(best_any).map(|(pos, _)| pos)
 }
 
+/// Precomputed weighted center-of-mass sums of a container's placed objects.
+///
+/// Allows evaluating the balance offset that would result from adding one more object in O(1)
+/// instead of re-scanning every placed object per candidate position.
+#[derive(Clone, Copy, Debug)]
+struct BalanceState {
+    weighted_x: f64,
+    weighted_y: f64,
+    total_weight: f64,
+}
+
+impl BalanceState {
+    /// Accumulates the weighted XY centers of all objects placed in the container.
+    fn from_container(cont: &Container) -> Self {
+        let mut state = Self {
+            weighted_x: 0.0,
+            weighted_y: 0.0,
+            total_weight: 0.0,
+        };
+        for p in &cont.placed {
+            state.weighted_x += (p.position.0 + p.object.dims.0 / 2.0) * p.object.weight;
+            state.weighted_y += (p.position.1 + p.object.dims.1 / 2.0) * p.object.weight;
+            state.total_weight += p.object.weight;
+        }
+        state
+    }
+
+    /// Distance of the center of mass from `reference` after adding one more weighted point.
+    fn offset_with(&self, x_center: f64, y_center: f64, weight: f64, reference: (f64, f64)) -> f64 {
+        let total = self.total_weight + weight;
+        if total <= 0.0 {
+            return 0.0;
+        }
+        let cm = (
+            (self.weighted_x + x_center * weight) / total,
+            (self.weighted_y + y_center * weight) / total,
+        );
+        distance_2d(cm, reference)
+    }
+}
+
 /// Generates possible positions along an axis.
 ///
-/// Creates a grid of positions with the specified step size.
+/// Creates a grid of positions with the specified step size. The number of generated positions
+/// is bounded by [`PackingConfig::MAX_AXIS_GRID_POSITIONS`]: when the requested step would
+/// produce more positions than that (e.g. for extremely large containers), the step is widened
+/// proportionally so the axis is still covered end to end. This keeps the position search
+/// bounded even for adversarial container dimensions.
 ///
 /// # Parameters
 /// * `container_len` - Length of the container in this dimension
@@ -1031,6 +1142,8 @@ fn axis_positions(container_len: f64, object_len: f64, step: f64, epsilon: f64) 
         positions.push(0.0);
         return positions;
     }
+
+    let step = step.max(max_pos / PackingConfig::MAX_AXIS_GRID_POSITIONS as f64);
 
     let mut pos = 0.0;
     while pos <= max_pos + epsilon {
@@ -1110,38 +1223,6 @@ fn support_ratio_of(b: &PlacedBox, cont: &Container, config: &PackingConfig) -> 
     analyze_support_surface(b, cont, config).support_ratio
 }
 
-/// Calculates the balance/center of gravity deviation after adding an object.
-///
-/// Computes the weighted center of gravity of all objects and its distance
-/// to the geometric center of the container.
-///
-/// # Parameters
-/// * `cont` - The container
-/// * `new_box` - The object to add
-fn calculate_balance_after(cont: &Container, new_box: &PlacedBox) -> f64 {
-    let new_point = (
-        new_box.position.0 + new_box.object.dims.0 / 2.0,
-        new_box.position.1 + new_box.object.dims.1 / 2.0,
-        new_box.object.weight,
-    );
-
-    match compute_center_of_mass_xy(
-        cont.placed
-            .iter()
-            .map(|p| {
-                (
-                    p.position.0 + p.object.dims.0 / 2.0,
-                    p.position.1 + p.object.dims.1 / 2.0,
-                    p.object.weight,
-                )
-            })
-            .chain(std::iter::once(new_point)),
-    ) {
-        Some(cm) => distance_2d(cm, container_center_xy(cont)),
-        None => 0.0,
-    }
-}
-
 #[derive(Clone, Copy, Debug)]
 struct StaticStabilityMetrics {
     support_ratio: f64,
@@ -1162,9 +1243,27 @@ struct SupportAnalysis {
 const SUPPORT_DEFICIT_WEIGHT: f64 = 4.0;
 const SINGLE_SUPPORT_CONTACT_PENALTY: f64 = 0.15;
 
+/// Analyzes the support surface of a candidate placement against the full container contents.
+///
+/// Convenience wrapper around [`analyze_support_surface_over`] for callers (diagnostics, tests)
+/// that have not already prefiltered the potential supporters.
 fn analyze_support_surface(
     b: &PlacedBox,
     cont: &Container,
+    config: &PackingConfig,
+) -> SupportAnalysis {
+    let supporters: Vec<&PlacedBox> = cont.placed.iter().collect();
+    analyze_support_surface_over(b, &supporters, config)
+}
+
+/// Analyzes how well a candidate placement is supported by the given potential supporters.
+///
+/// `supporters` may be the full container contents or a prefiltered subset; objects whose top
+/// face is not at the candidate's bottom (within `height_epsilon`) are skipped either way, so
+/// prefiltering by Z-layer is purely a performance optimization with identical results.
+fn analyze_support_surface_over(
+    b: &PlacedBox,
+    supporters: &[&PlacedBox],
     config: &PackingConfig,
 ) -> SupportAnalysis {
     if b.position.2 <= config.height_epsilon {
@@ -1189,7 +1288,7 @@ fn analyze_support_surface(
     let mut supports_weight = true;
     let mut center_supported = false;
 
-    for p in &cont.placed {
+    for &p in supporters {
         let support_surface_z = p.position.2 + p.object.dims.2;
         if (bz - support_surface_z).abs() > config.height_epsilon {
             continue;
@@ -1438,20 +1537,15 @@ fn calculate_balance_limit(cont: &Container, config: &PackingConfig) -> f64 {
 }
 
 fn calculate_current_balance_offset(cont: &Container) -> f64 {
-    if cont.placed.is_empty() {
+    let state = BalanceState::from_container(cont);
+    if state.total_weight <= 0.0 {
         return 0.0;
     }
-
-    match compute_center_of_mass_xy(cont.placed.iter().map(|p| {
-        (
-            p.position.0 + p.object.dims.0 / 2.0,
-            p.position.1 + p.object.dims.1 / 2.0,
-            p.object.weight,
-        )
-    })) {
-        Some(cm) => distance_2d(cm, container_center_xy(cont)),
-        None => 0.0,
-    }
+    let cm = (
+        state.weighted_x / state.total_weight,
+        state.weighted_y / state.total_weight,
+    );
+    distance_2d(cm, container_center_xy(cont))
 }
 
 fn container_center_xy(cont: &Container) -> (f64, f64) {
@@ -1460,27 +1554,6 @@ fn container_center_xy(cont: &Container) -> (f64, f64) {
 
 fn distance_2d(a: (f64, f64), b: (f64, f64)) -> f64 {
     ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt()
-}
-
-fn compute_center_of_mass_xy<I>(points: I) -> Option<(f64, f64)>
-where
-    I: Iterator<Item = (f64, f64, f64)>,
-{
-    let mut total_w = 0.0;
-    let mut x_c = 0.0;
-    let mut y_c = 0.0;
-
-    for (x, y, w) in points {
-        total_w += w;
-        x_c += x * w;
-        y_c += y * w;
-    }
-
-    if total_w <= 0.0 {
-        None
-    } else {
-        Some((x_c / total_w, y_c / total_w))
-    }
 }
 
 /// Calculates diagnostic metrics for a container.
@@ -2457,6 +2530,93 @@ mod tests {
             PackingConfig::DEFAULT_FOOTPRINT_CLUSTER_TOLERANCE
         );
         assert!(sanitized.allow_item_rotation);
+    }
+
+    #[test]
+    fn rotation_into_existing_container_beats_opening_a_new_one() {
+        // Container 1 will hold a heavy 10×10×4 base plate, leaving 6 units of height. The
+        // second object (10, 6, 10) does not fit the remaining space in its original
+        // orientation, but rotated to (10, 10, 6) it stacks perfectly on top. A correct
+        // search must therefore not open a second container.
+        let config = PackingConfig {
+            allow_item_rotation: true,
+            ..PackingConfig::default()
+        };
+        let objects = vec![
+            Box3D::new(1, (10.0, 10.0, 4.0), 10.0).unwrap(),
+            Box3D::new(2, (10.0, 6.0, 10.0), 3.0).unwrap(),
+        ];
+
+        let result =
+            pack_objects_with_config(objects, single_blueprint((10.0, 10.0, 10.0), 100.0), config);
+
+        assert!(result.unplaced.is_empty());
+        assert_eq!(
+            result.containers.len(),
+            1,
+            "the rotated orientation must be tried in the existing container before a new one is opened"
+        );
+        let stacked = result.containers[0]
+            .placed
+            .iter()
+            .find(|p| p.object.id == 2)
+            .expect("second object missing");
+        assert_eq!(stacked.object.dims, (10.0, 10.0, 6.0));
+        assert!((stacked.position.2 - 4.0).abs() < config.height_epsilon);
+    }
+
+    #[test]
+    fn axis_positions_are_bounded_for_huge_containers() {
+        let eps = PackingConfig::DEFAULT_GENERAL_EPSILON;
+        let positions = axis_positions(1e9, 1.0, 5.0, eps);
+        assert!(
+            positions.len() <= PackingConfig::MAX_AXIS_GRID_POSITIONS + 2,
+            "grid must be capped, got {} positions",
+            positions.len()
+        );
+        // The axis is still covered end to end.
+        assert_eq!(positions[0], 0.0);
+        assert!((positions.last().unwrap() - (1e9 - 1.0)).abs() < 1.0);
+    }
+
+    #[test]
+    fn packing_huge_container_terminates_quickly() {
+        // Regression guard for the grid-size DoS: before the axis cap, a request combining a
+        // huge container with the default grid step enumerated hundreds of millions of
+        // candidate positions and effectively hung the service.
+        let objects = vec![Box3D::new(1, (1.0, 1.0, 1.0), 1.0).unwrap()];
+        let result = pack_objects(objects, single_blueprint((1e6, 1e6, 1e6), 100.0));
+        assert!(result.unplaced.is_empty());
+        assert_eq!(result.containers.len(), 1);
+    }
+
+    #[test]
+    fn cancellation_stops_packing_and_returns_none() {
+        let objects = vec![
+            Box3D::new(1, (5.0, 5.0, 5.0), 5.0).unwrap(),
+            Box3D::new(2, (5.0, 5.0, 5.0), 5.0).unwrap(),
+        ];
+        let mut events = 0usize;
+
+        let cancelled_immediately = pack_objects_with_cancellation(
+            objects.clone(),
+            single_blueprint((20.0, 20.0, 20.0), 100.0),
+            PackingConfig::default(),
+            |_| events += 1,
+            || true,
+        );
+        assert!(cancelled_immediately.is_none());
+        assert_eq!(events, 0, "no events must be emitted after cancellation");
+
+        // Without a cancellation signal the same input completes normally.
+        let completed = pack_objects_with_cancellation(
+            objects,
+            single_blueprint((20.0, 20.0, 20.0), 100.0),
+            PackingConfig::default(),
+            |_| {},
+            || false,
+        );
+        assert!(completed.is_some_and(|result| result.unplaced.is_empty()));
     }
 
     #[test]

@@ -13,6 +13,11 @@ let liveDiagnosticsSummary = null;
 let lastFocusedElement = null;
 let liveStreamController = null;
 let liveStreamSessionId = 0;
+// Batch (/pack) requests get the same supersede protection as the live stream: a monotonically
+// increasing session id plus an AbortController, so a slow older response can never overwrite
+// the state of a newer batch or live run.
+let batchFetchController = null;
+let batchSessionId = 0;
 let statusState = {
   mode: 'Idle',
   phase: 'Ready',
@@ -478,9 +483,18 @@ function updateStats(container, dims, visibleCount = null) {
   const objectCount =
     visibleCount !== null ? visibleCount : container.placed.length;
   const containerVolume = dims[0] * dims[1] * dims[2];
-  const usedVolume = container.placed
-    .slice(0, objectCount)
-    .reduce((sum, obj) => sum + obj.dims[0] * obj.dims[1] * obj.dims[2], 0);
+  // During step animation only a prefix of the objects is visible — and the animation renders
+  // them sorted by height (see animateContainer), so the stats must sum the same subset.
+  const visibleObjects =
+    visibleCount !== null
+      ? [...container.placed]
+          .sort((a, b) => a.pos[2] - b.pos[2])
+          .slice(0, objectCount)
+      : container.placed;
+  const usedVolume = visibleObjects.reduce(
+    (sum, obj) => sum + obj.dims[0] * obj.dims[1] * obj.dims[2],
+    0
+  );
   const diagnostics = container.diagnostics ?? null;
   // Prefer the authoritative backend utilization for the full container; fall back to a
   // client-side computation during step animation, where only a subset is visible.
@@ -1127,6 +1141,14 @@ async function fetchPacking() {
     return;
   }
   stopLiveStream();
+  // Supersede any still-pending batch request before starting a new one.
+  if (batchFetchController) {
+    batchFetchController.abort();
+  }
+  const controller = new AbortController();
+  batchFetchController = controller;
+  batchSessionId += 1;
+  const sessionId = batchSessionId;
   // Batch requests can replace an active live view, so flip the UI mode before updating status.
   liveMode = false;
   try {
@@ -1144,6 +1166,7 @@ async function fetchPacking() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+      signal: controller.signal,
     });
     if (!response.ok) {
       const errorText = await response.text();
@@ -1153,7 +1176,14 @@ async function fetchPacking() {
           : `Request failed with status ${response.status}`
       );
     }
-    packingResults = await response.json();
+    const results = await response.json();
+    // A newer batch or live run may have superseded this request while it was in flight;
+    // its response must not clobber the newer run's state.
+    if (sessionId !== batchSessionId) {
+      console.debug('Ignoring response from superseded batch request.');
+      return;
+    }
+    packingResults = results;
     console.log('✅ Server Response:', packingResults);
     const placedCount = Array.isArray(packingResults.results)
       ? packingResults.results.reduce(
@@ -1174,7 +1204,13 @@ async function fetchPacking() {
       );
     }
     currentContainerIndex = 0;
-    showContainer(0);
+    if (packingResults.results?.length) {
+      showContainer(0);
+    } else {
+      // No container could be filled: clear the previous run's scene instead of leaving a
+      // stale visualization next to the fresh unplaced list.
+      clearScene();
+    }
     updateNavigationButtons();
     setStatus({
       mode: 'Batch',
@@ -1190,6 +1226,11 @@ async function fetchPacking() {
       showToast('Packing completed successfully.', 'success');
     }
   } catch (error) {
+    // Aborts are expected when a newer run supersedes this request — not an error state.
+    if (error?.name === 'AbortError' || sessionId !== batchSessionId) {
+      console.debug('Superseded batch request aborted.');
+      return;
+    }
     console.error('❌ Error:', error);
     setStatus({
       mode: 'Batch',
@@ -1198,6 +1239,10 @@ async function fetchPacking() {
       message: 'The server request failed. Check the backend and try again.',
     });
     showToast(error.message || 'Server not reachable.', 'error', 5200);
+  } finally {
+    if (batchFetchController === controller) {
+      batchFetchController = null;
+    }
   }
 }
 
@@ -1499,16 +1544,22 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'ArrowLeft') {
     event.preventDefault();
     if (!document.getElementById('prevContainer').disabled) {
+      // Stop a running animation like the button handlers do, otherwise its interval keeps
+      // redrawing the previous container over the newly selected one.
+      if (isAnimating) toggleAnimation();
       showContainer(currentContainerIndex - 1);
       updateNavigationButtons();
     }
   } else if (event.key === 'ArrowRight') {
     event.preventDefault();
     if (!document.getElementById('nextContainer').disabled) {
+      if (isAnimating) toggleAnimation();
       showContainer(currentContainerIndex + 1);
       updateNavigationButtons();
     }
   } else if (event.code === 'Space') {
+    // Keep native Space activation for a focused button (keyboard accessibility).
+    if (activeTagName === 'button') return;
     event.preventDefault();
     if (!document.getElementById('animateBtn').disabled) {
       toggleAnimation();
@@ -1553,6 +1604,12 @@ function startLivePacking() {
     return;
   }
   stopLiveStream();
+  // A still-pending batch request must not resolve later and overwrite the live run's state.
+  if (batchFetchController) {
+    batchFetchController.abort();
+    batchFetchController = null;
+  }
+  batchSessionId += 1;
   liveMode = true;
   liveContainers = [];
   liveUnplaced = [];
