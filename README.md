@@ -227,6 +227,31 @@ On startup, the service checks for the latest GitHub releases (`JosunLP/sort-it-
 - To avoid unexpectedly large downloads, the updater limits release artifacts to 200 MB by default. Adjust the limit via `SORT_IT_NOW_MAX_DOWNLOAD_MB` (value `0` disables the limit).
 - Repo/owner and timeout can be configured via `SORT_IT_NOW_GITHUB_OWNER`, `SORT_IT_NOW_GITHUB_REPO`, and `SORT_IT_NOW_HTTP_TIMEOUT_SECS` – defaults apply automatically if no `.env` is present.
 
+## 🔑 License Keys
+
+Every instance checks its license locally at startup — no network connection or license server is involved.
+
+- Set the license key via the environment variable `SORT_IT_NOW_LICENSE_KEY` (or in `.env`).
+- **Without a valid key**, the instance runs in a free tier of **10 packing operations** (`POST /pack` or `POST /pack_stream`, counted per running instance; invalid requests are not counted). After that, every packing request is answered with `402 Payment Required` and only the message that an active license is required for further use. The web UI shows the remaining free operations and switches to a locked notice once they are used up. `GET /health`, `GET /version`, `GET /config`, and `GET /license` keep working.
+- **With a valid key**, packing is unlimited.
+
+Key format: `SORTIT-XXXXXXXX-XXXX-4XXX-YXXX-XXXXXXXXXXXX` — the prefix `SORTIT-` followed by a random version-4 GUID (122 random bits). Keys are case-insensitive; surrounding whitespace is ignored.
+
+The binary only contains SHA-512 hashes (128 hex characters, domain-separated) of the valid keys in `src/license/hashes.rs` — never the keys themselves, so they cannot be read from the source or binary, and the 122-bit random space makes guessing infeasible.
+
+**Maintaining licenses** (maintainers only):
+
+```bash
+# Create new keys; prints "KEY<TAB>HASH" per line. Hand out the key privately,
+# append only the hash to src/license/hashes.rs.
+cargo run --example license_keygen -- generate 5
+
+# Compute the hash of an existing key, e.g. to revoke it by removing that line.
+cargo run --example license_keygen -- hash SORTIT-...
+```
+
+Changes to the hash list take effect with the next build/release.
+
 ## 📊 API Endpoints
 
 ### OpenAPI & Swagger UI
@@ -239,6 +264,7 @@ On startup, the service checks for the latest GitHub releases (`JosunLP/sort-it-
 - `GET /health` returns `{ "status": "ok" }` and is suitable as a liveness/readiness probe.
 - `GET /version` returns the running build's `name`, `version`, and `description`.
 - `GET /config` returns the active packing configuration (grid step, support ratio, tolerances, rotation default) and the per-request guardrails (`max_objects`, `max_containers`).
+- `GET /license` returns the license state of the instance (`licensed`, `status`, `locked`, `free_pack_limit`, `free_packs_used`, `free_packs_remaining`, `message`). See [License Keys](#-license-keys).
 
 ### POST /pack
 
@@ -384,6 +410,11 @@ All tests should pass successfully:
 - **`calculate_balance_after()`**: Calculates center of mass deviation
 - **`compute_container_diagnostics()`**: Per-container metrics including packaging-material volume
 
+#### `license.rs`
+
+- **`LicenseGuard`**: License state plus the atomic free-tier counter shared by the packing handlers
+- **`verify_key()`** / **`hash_key()`** / **`normalize_key()`**: Key format check and SHA-512 verification against the compiled-in hash list (`license/hashes.rs`)
+
 #### `api.rs`
 
 - **REST API** with Axum framework
@@ -435,6 +466,7 @@ The application optionally loads a `.env` file on startup (using [`dotenvy`](htt
 | ------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `SORT_IT_NOW_API_HOST`                      | `0.0.0.0`     | IP address the HTTP server binds to. Set e.g. `127.0.0.1` for local access.                                        |
 | `SORT_IT_NOW_API_PORT`                      | `8080`        | API server port. Values of `0` are rejected.                                                                       |
+| `SORT_IT_NOW_LICENSE_KEY`                   | –             | License key (`SORTIT-<GUID>`). Without a valid key the instance is locked after 10 packing operations.             |
 | `SORT_IT_NOW_MAX_OBJECTS`                   | `10000`       | Maximum objects accepted per request (0 = unlimited). Exceeding it returns `422`.                                  |
 | `SORT_IT_NOW_MAX_CONTAINERS`                | `1000`        | Maximum container types accepted per request (0 = unlimited). Exceeding it returns `422`.                          |
 | `SORT_IT_NOW_GITHUB_OWNER`                  | `JosunLP`     | GitHub owner/organization whose releases are queried for updates.                                                  |

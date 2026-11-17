@@ -1,2 +1,6 @@
 /target
 Cargo.lock
+
+# Never commit plain license keys
+license-keys*
+*.license-keys.*

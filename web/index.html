@@ -345,6 +345,48 @@
         line-height: 1.45;
       }
 
+      #licenseBanner {
+        position: absolute;
+        bottom: 170px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 1050;
+        width: min(560px, calc(100vw - 40px));
+        padding: 12px 16px;
+        border-radius: 8px;
+        background: rgba(0, 0, 0, 0.88);
+        border: 2px solid #f59e0b;
+        box-shadow: 0 4px 20px rgba(245, 158, 11, 0.3);
+        pointer-events: auto;
+        line-height: 1.45;
+      }
+
+      #licenseBanner[hidden] {
+        display: none;
+      }
+
+      #licenseBanner.locked {
+        border-color: #ef4444;
+        box-shadow: 0 4px 20px rgba(239, 68, 68, 0.35);
+      }
+
+      #licenseBanner strong {
+        display: block;
+        margin-bottom: 4px;
+        color: #f59e0b;
+      }
+
+      #licenseBanner.locked strong {
+        color: #ef4444;
+      }
+
+      #licenseBanner code {
+        font-size: 0.85em;
+        padding: 1px 4px;
+        border-radius: 4px;
+        background: rgba(255, 255, 255, 0.1);
+      }
+
       #toastRegion {
         position: absolute;
         right: 20px;
@@ -600,7 +642,8 @@
         #stats,
         #statusPanel,
         #help,
-        #unplacedPanel {
+        #unplacedPanel,
+        #licenseBanner {
           position: static;
           width: min(100%, 720px);
           max-width: 100%;
@@ -650,6 +693,11 @@
     <div id="container"></div>
 
       <div id="ui-overlay">
+        <div id="licenseBanner" role="status" aria-live="polite" hidden>
+          <strong id="licenseBannerTitle"></strong>
+          <span id="licenseBannerMessage"></span>
+        </div>
+
         <div id="stats">
           <h3>Statistics</h3>
           <p><strong>Objects:</strong> 0 / 0</p>

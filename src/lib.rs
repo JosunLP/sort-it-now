@@ -13,6 +13,7 @@
 //! - [`packaging`] — void-fill / packaging-material estimation value objects.
 //! - [`optimizer`] — the heuristic packing engine and its diagnostics.
 //! - [`config`] — environment-driven configuration for the API, optimizer, and updater.
+//! - [`license`] — local license-key verification and the free-tier usage guard.
 //! - [`api`] — the Axum HTTP layer (router, request/response types, handlers).
 //! - [`update`] — the background GitHub release updater.
 
@@ -20,6 +21,7 @@ pub mod api;
 pub mod cli;
 pub mod config;
 pub mod geometry;
+pub mod license;
 pub mod model;
 pub mod optimizer;
 pub mod packaging;

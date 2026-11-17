@@ -29,6 +29,7 @@ utoipa = { version = "5.4", features = ["axum_extras"] }
 winreg = "0.52"
 
 [dev-dependencies]
+uuid = { version = "1", features = ["v4"] }
 tower = { version = "0.5", features = ["util"] }
 
 [profile.release]
