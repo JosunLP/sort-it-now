@@ -14,7 +14,9 @@
 use sort_it_now::api;
 use sort_it_now::cli::{self, CliOutcome};
 use sort_it_now::config::AppConfig;
+use sort_it_now::license::{FREE_PACK_LIMIT, LICENSE_KEY_VAR, LicenseGuard, LicenseStatus};
 use sort_it_now::update;
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() {
@@ -41,6 +43,14 @@ async fn main() {
     let optimizer_config = app_config.optimizer.clone();
 
     println!("🚀 Packing Service starting...");
+    let license = Arc::new(LicenseGuard::from_env());
+    match license.status() {
+        LicenseStatus::Licensed => println!("🔑 License: valid license key detected."),
+        LicenseStatus::Unlicensed(reason) => eprintln!(
+            "⚠️ License: unlicensed instance ({reason}). Packing is limited to {FREE_PACK_LIMIT} \
+             operations; set {LICENSE_KEY_VAR} to a valid license key for unlimited use."
+        ),
+    }
     let _update_task = update::check_for_updates_background(update_config);
-    api::start_api_server(api_config, optimizer_config).await;
+    api::start_api_server(api_config, optimizer_config, license).await;
 }

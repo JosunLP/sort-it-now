@@ -10,11 +10,26 @@ use axum::http::{Request, StatusCode, header};
 use serde_json::{Value, json};
 use sort_it_now::api::build_router;
 use sort_it_now::config::{OptimizerConfig, RequestLimits};
+use sort_it_now::license::{FREE_PACK_LIMIT, LicenseGuard};
+use std::sync::Arc;
 use tower::ServiceExt; // for `oneshot`
 
-/// Builds a router with default optimizer configuration and the given request limits.
+/// Builds a licensed router with default optimizer configuration and the given request limits.
 fn router_with_limits(limits: RequestLimits) -> Router {
-    build_router(OptimizerConfig::default(), limits)
+    build_router(
+        OptimizerConfig::default(),
+        limits,
+        Arc::new(LicenseGuard::licensed()),
+    )
+}
+
+/// Builds an unlicensed router (free tier) sharing the given guard across requests.
+fn unlicensed_router(guard: &Arc<LicenseGuard>) -> Router {
+    build_router(
+        OptimizerConfig::default(),
+        RequestLimits::default(),
+        Arc::clone(guard),
+    )
 }
 
 /// Builds a router with default optimizer configuration and default request limits.
@@ -215,4 +230,109 @@ async fn index_is_served() {
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let html = String::from_utf8_lossy(&body);
     assert!(html.contains("<!DOCTYPE html>"));
+}
+
+/// Minimal valid pack request used by the license tests.
+fn small_pack_payload() -> String {
+    json!({
+        "containers": [{"dims": [10.0, 10.0, 10.0], "max_weight": 100.0}],
+        "objects": [{"id": 1, "dims": [5.0, 5.0, 5.0], "weight": 1.0}]
+    })
+    .to_string()
+}
+
+#[tokio::test]
+async fn license_endpoint_reports_licensed_instance() {
+    let (status, body) = get_json(router(), "/license").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["licensed"], true);
+    assert_eq!(body["status"], "licensed");
+    assert_eq!(body["locked"], false);
+    assert!(body["free_packs_remaining"].is_null());
+}
+
+#[tokio::test]
+async fn unlicensed_instance_locks_after_free_packs() {
+    let guard = Arc::new(LicenseGuard::unlicensed());
+
+    for used in 1..=FREE_PACK_LIMIT {
+        let (status, _) = post_json(unlicensed_router(&guard), "/pack", small_pack_payload()).await;
+        assert_eq!(status, StatusCode::OK, "free pack #{used} should succeed");
+        let (_, license) = get_json(unlicensed_router(&guard), "/license").await;
+        assert_eq!(license["free_packs_used"].as_u64(), Some(used));
+        assert_eq!(
+            license["free_packs_remaining"].as_u64(),
+            Some(FREE_PACK_LIMIT - used)
+        );
+    }
+
+    let (status, body) = post_json(unlicensed_router(&guard), "/pack", small_pack_payload()).await;
+    assert_eq!(status, StatusCode::PAYMENT_REQUIRED);
+    assert_eq!(body["error"], "License required");
+    assert!(
+        body["details"]
+            .as_str()
+            .unwrap()
+            .contains("active license is required")
+    );
+
+    // The streaming endpoint is locked as well, and returns only the license message.
+    let (status, body) = post_json(
+        unlicensed_router(&guard),
+        "/pack_stream",
+        small_pack_payload(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::PAYMENT_REQUIRED);
+    assert_eq!(body["error"], "License required");
+
+    // Even invalid requests get the license message once the instance is locked.
+    let (status, _) = post_json(unlicensed_router(&guard), "/pack", "not-json".to_string()).await;
+    assert_eq!(status, StatusCode::PAYMENT_REQUIRED);
+
+    let (status, license) = get_json(unlicensed_router(&guard), "/license").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(license["licensed"], false);
+    assert_eq!(license["locked"], true);
+    assert_eq!(license["free_packs_remaining"].as_u64(), Some(0));
+
+    // System endpoints keep working for monitoring.
+    let (status, _) = get_json(unlicensed_router(&guard), "/health").await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn invalid_requests_do_not_consume_free_packs() {
+    let guard = Arc::new(LicenseGuard::unlicensed());
+    let payload = json!({ "containers": [], "objects": [] }).to_string();
+    let (status, _) = post_json(unlicensed_router(&guard), "/pack", payload).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(guard.used(), 0);
+}
+
+#[tokio::test]
+async fn stream_requests_consume_free_packs() {
+    let guard = Arc::new(LicenseGuard::unlicensed());
+    let response = unlicensed_router(&guard)
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/pack_stream")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(small_pack_payload()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(guard.used(), 1);
+}
+
+#[tokio::test]
+async fn licensed_instance_is_not_limited() {
+    let guard = Arc::new(LicenseGuard::licensed());
+    for _ in 0..(FREE_PACK_LIMIT + 5) {
+        let (status, _) = post_json(unlicensed_router(&guard), "/pack", small_pack_payload()).await;
+        assert_eq!(status, StatusCode::OK);
+    }
 }

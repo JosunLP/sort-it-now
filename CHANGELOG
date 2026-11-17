@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Local license checks**: the instance verifies `SORT_IT_NOW_LICENSE_KEY` at startup against a compiled-in list of SHA-512 hashes (`src/license/hashes.rs`, initially 40 licenses) — no network access required, and no valid key is contained in the source or binary. Keys follow the format `SORTIT-<GUID v4>`.
+- **Free tier for unlicensed instances**: without a valid key an instance may run 10 packing operations (`/pack`, `/pack_stream`); afterwards both endpoints answer with `402 Payment Required` and the message that an active license is required for further use. Invalid requests do not count; the counter is atomic, so concurrent requests cannot exceed the limit.
+- **`GET /license`** endpoint reporting license state and remaining free packing operations (documented in OpenAPI).
+- **Web UI license notice**: shows the remaining free operations, and a locked notice with disabled pack buttons once the free tier is used up.
+- Maintainer tool `cargo run --example license_keygen -- generate|hash` to create keys and compute hashes for adding or revoking licenses.
+
+### Changed
+
+- `api::build_router` and `api::start_api_server` take an `Arc<LicenseGuard>` parameter.
+
 ## [1.5.0] - 2026-07-03
 
 ### Added
