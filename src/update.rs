@@ -359,7 +359,11 @@ async fn download_and_install_update(
         }
         file.flush().await?;
 
-        let computed_checksum = format!("{:x}", hasher.finalize());
+        let computed_checksum: String = hasher
+            .finalize()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
         if computed_checksum != expected_checksum {
             drop(file);
             let _ = fs::remove_file(&archive_path).await;
@@ -1041,7 +1045,7 @@ fn ensure_windows_path(install_dir: &Path) -> Result<bool, std::io::Error> {
     env.set_raw_value(
         "Path",
         &RegValue {
-            bytes,
+            bytes: bytes.into(),
             vtype: value_type,
         },
     )?;
