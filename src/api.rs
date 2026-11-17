@@ -24,7 +24,9 @@ use tower_http::cors::{Any, CorsLayer};
 use utoipa::{OpenApi, ToSchema};
 
 use crate::config::{ApiConfig, OptimizerConfig, RequestLimits};
-use crate::license::{LICENSE_KEY_VAR, LICENSE_REQUIRED_MESSAGE, LicenseGuard, LicenseStatus};
+use crate::license::{
+    LICENSE_KEY_VAR, LICENSE_REQUIRED_MESSAGE, LicenseGuard, LicenseRequired, LicenseStatus,
+};
 use crate::model::{Box3D, Container, ContainerBlueprint, ValidationError};
 use crate::optimizer::{
     ContainerDiagnostics, PackingConfig, PackingDiagnosticsSummary, PackingResult,
@@ -548,27 +550,29 @@ impl LicenseResponse {
             LicenseStatus::Licensed => "licensed",
             LicenseStatus::Unlicensed(reason) => reason.code(),
         };
-        let message = match (guard.status(), guard.remaining()) {
-            (LicenseStatus::Licensed, _) => "This instance is licensed.".to_string(),
-            (_, _) if guard.is_locked() => guard
-                .ensure_unlocked()
-                .err()
-                .map(|err| err.to_string())
-                .unwrap_or_else(|| LICENSE_REQUIRED_MESSAGE.to_string()),
-            (LicenseStatus::Unlicensed(reason), remaining) => format!(
+        // Every usage-derived field comes from one snapshot, so a concurrent pack request can
+        // never produce a response mixing values from before and after it.
+        let usage = guard.usage();
+        let message = match guard.status() {
+            LicenseStatus::Licensed => "This instance is licensed.".to_string(),
+            LicenseStatus::Unlicensed(_) if usage.locked => LicenseRequired {
+                limit: guard.limit(),
+            }
+            .to_string(),
+            LicenseStatus::Unlicensed(reason) => format!(
                 "Unlicensed instance ({reason}): {} of {} free packing operations remaining. \
                  Set {LICENSE_KEY_VAR} to a valid license key for unlimited use.",
-                remaining.unwrap_or(0),
+                usage.remaining.unwrap_or(0),
                 guard.limit()
             ),
         };
         Self {
             licensed: guard.is_licensed(),
             status,
-            locked: guard.is_locked(),
+            locked: usage.locked,
             free_pack_limit: guard.limit(),
-            free_packs_used: if guard.is_licensed() { 0 } else { guard.used() },
-            free_packs_remaining: guard.remaining(),
+            free_packs_used: usage.used,
+            free_packs_remaining: usage.remaining,
             message,
         }
     }

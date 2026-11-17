@@ -1140,6 +1140,9 @@ function countLivePlaced() {
 // once they are used up the server answers packing requests with HTTP 402 and only the
 // license message, which the UI surfaces in a banner and the status panel.
 let licenseState = null;
+// Bumped whenever a packing request confirms the lock (HTTP 402). A /license refresh started
+// before that point carries an older snapshot and must not re-enable packing.
+let licenseStateGeneration = 0;
 
 class LicenseRequiredError extends Error {
   constructor(message) {
@@ -1176,10 +1179,16 @@ function applyLicenseState(state) {
 }
 
 async function refreshLicenseState() {
+  const generation = licenseStateGeneration;
   try {
     const response = await fetch('/license');
     if (!response.ok) return;
-    applyLicenseState(await response.json());
+    const state = await response.json();
+    // The lock cannot be lifted without restarting the server, so never let an older or
+    // concurrent refresh replace a lock that a 402 response already confirmed.
+    if (generation !== licenseStateGeneration) return;
+    if (licenseState?.locked && !state.locked && !state.licensed) return;
+    applyLicenseState(state);
   } catch (error) {
     console.debug('License state could not be loaded:', error);
   }
@@ -1194,6 +1203,7 @@ async function licenseErrorFromResponse(response) {
   } catch (_) {
     // Fall back to the generic message.
   }
+  licenseStateGeneration += 1;
   applyLicenseState({
     ...(licenseState ?? { free_pack_limit: 0 }),
     licensed: false,

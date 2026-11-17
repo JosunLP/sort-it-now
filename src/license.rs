@@ -176,6 +176,17 @@ impl std::fmt::Display for LicenseRequired {
 
 impl std::error::Error for LicenseRequired {}
 
+/// Point-in-time snapshot of the free-tier usage (see [`LicenseGuard::usage`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LicenseUsage {
+    /// Free packing operations used (always `0` for licensed instances).
+    pub used: u64,
+    /// Remaining free packing operations; `None` for licensed (unlimited) instances.
+    pub remaining: Option<u64>,
+    /// `true` once an unlicensed instance has used up its free packing operations.
+    pub locked: bool,
+}
+
 /// Tracks the license state and the free-tier usage of a running instance.
 ///
 /// The guard is thread-safe; share it via `Arc` between request handlers.
@@ -249,6 +260,26 @@ impl LicenseGuard {
     /// Returns `true` if the instance no longer accepts packing requests.
     pub fn is_locked(&self) -> bool {
         !self.is_licensed() && self.used.load(Ordering::SeqCst) >= self.limit
+    }
+
+    /// Consistent view of the free-tier usage, derived from a single read of the counter.
+    ///
+    /// Use this instead of combining [`used`](Self::used), [`remaining`](Self::remaining), and
+    /// [`is_locked`](Self::is_locked) when several values must describe the same moment.
+    pub fn usage(&self) -> LicenseUsage {
+        if self.is_licensed() {
+            return LicenseUsage {
+                used: 0,
+                remaining: None,
+                locked: false,
+            };
+        }
+        let used = self.used.load(Ordering::SeqCst).min(self.limit);
+        LicenseUsage {
+            used,
+            remaining: Some(self.limit - used),
+            locked: used >= self.limit,
+        }
     }
 
     /// Fails fast without consuming anything if the instance is already locked.
@@ -389,6 +420,37 @@ mod tests {
         assert_eq!(guard.acquire(), Err(LicenseRequired { limit: 3 }));
         assert_eq!(guard.ensure_unlocked(), Err(LicenseRequired { limit: 3 }));
         assert_eq!(guard.used(), 3);
+    }
+
+    #[test]
+    fn usage_snapshot_is_consistent() {
+        let guard = LicenseGuard::new(LicenseStatus::Unlicensed(UnlicensedReason::Missing), 2);
+        assert_eq!(
+            guard.usage(),
+            LicenseUsage {
+                used: 0,
+                remaining: Some(2),
+                locked: false
+            }
+        );
+        guard.acquire().unwrap();
+        guard.acquire().unwrap();
+        assert_eq!(
+            guard.usage(),
+            LicenseUsage {
+                used: 2,
+                remaining: Some(0),
+                locked: true
+            }
+        );
+        assert_eq!(
+            LicenseGuard::licensed().usage(),
+            LicenseUsage {
+                used: 0,
+                remaining: None,
+                locked: false
+            }
+        );
     }
 
     #[test]
