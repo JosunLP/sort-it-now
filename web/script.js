@@ -1140,8 +1140,9 @@ function countLivePlaced() {
 // once they are used up the server answers packing requests with HTTP 402 and only the
 // license message, which the UI surfaces in a banner and the status panel.
 let licenseState = null;
-// Bumped whenever a packing request confirms the lock (HTTP 402). A /license refresh started
-// before that point carries an older snapshot and must not re-enable packing.
+// Monotonic sequence for license-state updates. Every /license refresh takes a new number and a
+// confirmed lock (HTTP 402) bumps it too, so only the most recent update may change the UI;
+// a delayed, superseded response can neither restore an older count nor re-enable packing.
 let licenseStateGeneration = 0;
 
 class LicenseRequiredError extends Error {
@@ -1179,6 +1180,7 @@ function applyLicenseState(state) {
 }
 
 async function refreshLicenseState() {
+  licenseStateGeneration += 1;
   const generation = licenseStateGeneration;
   try {
     const response = await fetch('/license');

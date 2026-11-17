@@ -203,8 +203,12 @@ impl LicenseGuard {
         let raw = match std::env::var(LICENSE_KEY_VAR) {
             Ok(value) => Some(value),
             Err(std::env::VarError::NotPresent) => None,
-            Err(err) => {
-                eprintln!("⚠️ Could not read {LICENSE_KEY_VAR}: {err}");
+            Err(std::env::VarError::NotUnicode(_)) => {
+                // Never print the error itself: `VarError::NotUnicode` carries the raw value,
+                // which would leak (part of) a license key into the logs.
+                eprintln!(
+                    "⚠️ {LICENSE_KEY_VAR} is not valid UTF-8; treating it as an invalid key."
+                );
                 // Present but unreadable (non UTF-8): treat as malformed, not as missing.
                 Some(String::from("\u{0}"))
             }
@@ -386,9 +390,10 @@ mod tests {
 
     #[test]
     fn compiled_hash_list_is_well_formed() {
+        // No minimum count: revoking a license removes its hash, so the list may shrink.
         assert!(
-            LICENSE_KEY_HASHES.len() >= 40,
-            "expected at least 40 license hashes"
+            !LICENSE_KEY_HASHES.is_empty(),
+            "the license hash list must not be empty"
         );
         let mut seen = HashSet::new();
         for hash in LICENSE_KEY_HASHES {
