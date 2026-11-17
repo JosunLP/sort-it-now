@@ -1135,7 +1135,106 @@ function countLivePlaced() {
   );
 }
 
+// --- License state ---
+// Mirrors GET /license. Unlicensed instances are limited to a few free packing operations;
+// once they are used up the server answers packing requests with HTTP 402 and only the
+// license message, which the UI surfaces in a banner and the status panel.
+let licenseState = null;
+// Monotonic sequence for license-state updates. Every /license refresh takes a new number and a
+// confirmed lock (HTTP 402) bumps it too, so only the most recent update may change the UI;
+// a delayed, superseded response can neither restore an older count nor re-enable packing.
+let licenseStateGeneration = 0;
+
+class LicenseRequiredError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'LicenseRequiredError';
+  }
+}
+
+function applyLicenseState(state) {
+  licenseState = state;
+  const banner = document.getElementById('licenseBanner');
+  const title = document.getElementById('licenseBannerTitle');
+  const message = document.getElementById('licenseBannerMessage');
+  const locked = Boolean(state && !state.licensed && state.locked);
+  for (const id of ['runPacking', 'runPackingLive']) {
+    const button = document.getElementById(id);
+    if (button) button.disabled = locked;
+  }
+  if (!banner || !title || !message) return;
+  if (!state || state.licensed) {
+    banner.hidden = true;
+    return;
+  }
+  banner.hidden = false;
+  banner.classList.toggle('locked', locked);
+  if (locked) {
+    title.textContent = '🔒 License required';
+    message.textContent = state.message;
+  } else {
+    const remaining = state.free_packs_remaining ?? 0;
+    title.textContent = '🔑 Unlicensed instance';
+    message.textContent = `${remaining} of ${state.free_pack_limit} free packing operation(s) remaining. An active license (SORT_IT_NOW_LICENSE_KEY) is required for further use.`;
+  }
+}
+
+async function refreshLicenseState() {
+  licenseStateGeneration += 1;
+  const generation = licenseStateGeneration;
+  try {
+    const response = await fetch('/license');
+    if (!response.ok) return;
+    const state = await response.json();
+    // The lock cannot be lifted without restarting the server, so never let an older or
+    // concurrent refresh replace a lock that a 402 response already confirmed.
+    if (generation !== licenseStateGeneration) return;
+    if (licenseState?.locked && !state.locked && !state.licensed) return;
+    applyLicenseState(state);
+  } catch (error) {
+    console.debug('License state could not be loaded:', error);
+  }
+}
+
+// Converts a 402 response into the locked UI state and a LicenseRequiredError.
+async function licenseErrorFromResponse(response) {
+  let details = 'An active license is required for further use of this instance.';
+  try {
+    const body = await response.json();
+    if (typeof body?.details === 'string' && body.details) details = body.details;
+  } catch (_) {
+    // Fall back to the generic message.
+  }
+  licenseStateGeneration += 1;
+  applyLicenseState({
+    ...(licenseState ?? { free_pack_limit: 0 }),
+    licensed: false,
+    locked: true,
+    free_packs_remaining: 0,
+    message: details,
+  });
+  return new LicenseRequiredError(details);
+}
+
+// Shows the license message instead of starting a run on a locked instance.
+function ensureLicenseOrNotify(mode) {
+  if (!licenseState || licenseState.licensed || !licenseState.locked) return true;
+  reportLicenseRequired(mode, licenseState.message);
+  return false;
+}
+
+function reportLicenseRequired(mode, message) {
+  setStatus({
+    mode,
+    phase: 'License required',
+    level: 'error',
+    message,
+  });
+  showToast(message, 'error', 7000);
+}
+
 async function fetchPacking() {
+  if (!ensureLicenseOrNotify('Batch')) return;
   if (!ensureConfigValidOrNotify()) {
     console.info('🚫 Packing operation aborted: configuration issues.');
     return;
@@ -1168,6 +1267,9 @@ async function fetchPacking() {
       body: JSON.stringify(payload),
       signal: controller.signal,
     });
+    if (response.status === 402) {
+      throw await licenseErrorFromResponse(response);
+    }
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(
@@ -1225,10 +1327,15 @@ async function fetchPacking() {
     if (!packingResults.unplaced?.length) {
       showToast('Packing completed successfully.', 'success');
     }
+    refreshLicenseState();
   } catch (error) {
     // Aborts are expected when a newer run supersedes this request — not an error state.
     if (error?.name === 'AbortError' || sessionId !== batchSessionId) {
       console.debug('Superseded batch request aborted.');
+      return;
+    }
+    if (error instanceof LicenseRequiredError) {
+      reportLicenseRequired('Batch', error.message);
       return;
     }
     console.error('❌ Error:', error);
@@ -1595,10 +1702,12 @@ animate();
 renderConfigValidationSummary();
 renderStatus();
 updateUnplacedPanel([]);
+refreshLicenseState();
 console.log('🚀 3D Visualizer ready!');
 
 // --- Live Modus (SSE) ---
 function startLivePacking() {
+  if (!ensureLicenseOrNotify('Live')) return;
   if (!ensureConfigValidOrNotify()) {
     console.info('🚫 Live packing aborted: configuration issues.');
     return;
@@ -1640,6 +1749,9 @@ function startLivePacking() {
     signal: controller.signal,
   })
     .then(async (resp) => {
+      if (resp.status === 402) {
+        throw await licenseErrorFromResponse(resp);
+      }
       if (!resp.ok) {
         const errorText = await resp.text();
         throw new Error(
@@ -1701,9 +1813,14 @@ function startLivePacking() {
       if (!sawFinishedEvent && streamSessionId === liveStreamSessionId) {
         handleLiveEvent({ type: 'Finished' });
       }
+      refreshLicenseState();
     })
     .catch((e) => {
       if (e?.name === 'AbortError' || streamSessionId !== liveStreamSessionId) {
+        return;
+      }
+      if (e instanceof LicenseRequiredError) {
+        reportLicenseRequired('Live', e.message);
         return;
       }
       console.warn('POST /pack_stream error:', e);

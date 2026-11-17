@@ -18,6 +18,8 @@ services:
       - SORT_IT_NOW_API_HOST=0.0.0.0
       - SORT_IT_NOW_API_PORT=8080
       - SORT_IT_NOW_SKIP_UPDATE_CHECK=1
+      # License key (without it the instance is locked after 10 packing operations):
+      # - SORT_IT_NOW_LICENSE_KEY=SORTIT-XXXXXXXX-XXXX-4XXX-YXXX-XXXXXXXXXXXX
       # Optional packing configuration:
       # - SORT_IT_NOW_PACKING_GRID_STEP=5.0
       # - SORT_IT_NOW_PACKING_SUPPORT_RATIO=0.6

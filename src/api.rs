@@ -16,7 +16,7 @@ use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 #[allow(unused_imports)]
 use serde_json::json;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::ReceiverStream;
@@ -24,6 +24,9 @@ use tower_http::cors::{Any, CorsLayer};
 use utoipa::{OpenApi, ToSchema};
 
 use crate::config::{ApiConfig, OptimizerConfig, RequestLimits};
+use crate::license::{
+    LICENSE_KEY_VAR, LICENSE_REQUIRED_MESSAGE, LicenseGuard, LicenseRequired, LicenseStatus,
+};
 use crate::model::{Box3D, Container, ContainerBlueprint, ValidationError};
 use crate::optimizer::{
     ContainerDiagnostics, PackingConfig, PackingDiagnosticsSummary, PackingResult,
@@ -35,6 +38,7 @@ use crate::packaging::{PackagingFill, PackagingSummary};
 struct ApiState {
     optimizer_config: OptimizerConfig,
     limits: RequestLimits,
+    license: Arc<LicenseGuard>,
 }
 
 static OPENAPI_DOC: OnceLock<utoipa::openapi::OpenApi> = OnceLock::new();
@@ -231,6 +235,10 @@ pub fn run_pack(
     limits: RequestLimits,
 ) -> Result<PackResponse, PackRequestValidationError> {
     let validated = request.into_validated(limits)?;
+    Ok(run_validated_pack(validated, base_config))
+}
+
+fn run_validated_pack(validated: ValidatedPackRequest, base_config: PackingConfig) -> PackResponse {
     let (objects, container_blueprints, allow_rotations_override) = validated.into_parts();
 
     let mut packing_config = base_config;
@@ -239,7 +247,7 @@ pub fn run_pack(
     }
 
     let packing_result = pack_objects_with_config(objects, container_blueprints, packing_config);
-    Ok(PackResponse::from_packing_result(packing_result))
+    PackResponse::from_packing_result(packing_result)
 }
 
 /// Response structure with all packed containers.
@@ -358,6 +366,16 @@ fn parse_json_body(
         Ok(Json(payload)) => Ok(payload),
         Err(err) => Err(Box::new(json_deserialize_error(err))),
     }
+}
+
+/// `402 Payment Required` response returned once an unlicensed instance is locked.
+fn license_required_response(guard: &LicenseGuard) -> Response {
+    let details = guard
+        .ensure_unlocked()
+        .err()
+        .map(|err| err.to_string())
+        .unwrap_or_else(|| LICENSE_REQUIRED_MESSAGE.to_string());
+    error_response(StatusCode::PAYMENT_REQUIRED, "License required", details)
 }
 
 /// Maps a structured validation error to the appropriate HTTP error response.
@@ -506,6 +524,60 @@ impl ConfigResponse {
     }
 }
 
+/// License state of the running instance.
+#[derive(Serialize, ToSchema)]
+pub struct LicenseResponse {
+    /// `true` if a valid license key is configured.
+    pub licensed: bool,
+    /// `licensed`, `missing`, `invalid_format`, or `not_recognized`.
+    pub status: &'static str,
+    /// `true` once an unlicensed instance has used up its free packing operations.
+    pub locked: bool,
+    /// Free packing operations available to unlicensed instances.
+    pub free_pack_limit: u64,
+    /// Free packing operations used so far (always `0` for licensed instances).
+    pub free_packs_used: u64,
+    /// Remaining free packing operations; `null` for licensed (unlimited) instances.
+    #[schema(nullable = true)]
+    pub free_packs_remaining: Option<u64>,
+    /// Human-readable summary suitable for display in a UI.
+    pub message: String,
+}
+
+impl LicenseResponse {
+    fn from_guard(guard: &LicenseGuard) -> Self {
+        let status = match guard.status() {
+            LicenseStatus::Licensed => "licensed",
+            LicenseStatus::Unlicensed(reason) => reason.code(),
+        };
+        // Every usage-derived field comes from one snapshot, so a concurrent pack request can
+        // never produce a response mixing values from before and after it.
+        let usage = guard.usage();
+        let message = match guard.status() {
+            LicenseStatus::Licensed => "This instance is licensed.".to_string(),
+            LicenseStatus::Unlicensed(_) if usage.locked => LicenseRequired {
+                limit: guard.limit(),
+            }
+            .to_string(),
+            LicenseStatus::Unlicensed(reason) => format!(
+                "Unlicensed instance ({reason}): {} of {} free packing operations remaining. \
+                 Set {LICENSE_KEY_VAR} to a valid license key for unlimited use.",
+                usage.remaining.unwrap_or(0),
+                guard.limit()
+            ),
+        };
+        Self {
+            licensed: guard.is_licensed(),
+            status,
+            locked: usage.locked,
+            free_pack_limit: guard.limit(),
+            free_packs_used: usage.used,
+            free_packs_remaining: usage.remaining,
+            message,
+        }
+    }
+}
+
 #[derive(OpenApi)]
 #[openapi(
     paths(
@@ -513,7 +585,8 @@ impl ConfigResponse {
         handle_pack_stream,
         handle_health,
         handle_version,
-        handle_config
+        handle_config,
+        handle_license
     ),
     components(
         schemas(
@@ -527,6 +600,7 @@ impl ConfigResponse {
             HealthResponse,
             VersionResponse,
             ConfigResponse,
+            LicenseResponse,
             Box3D,
             ContainerDiagnostics,
             SupportDiagnostics,
@@ -537,7 +611,7 @@ impl ConfigResponse {
     ),
     tags(
         (name = "packing", description = "Endpoints for packing optimization"),
-        (name = "system", description = "Service health, version, and configuration endpoints")
+        (name = "system", description = "Service health, version, configuration, and license endpoints")
     )
 )]
 struct ApiDoc;
@@ -545,8 +619,13 @@ struct ApiDoc;
 /// Builds the fully configured Axum [`Router`] for the service.
 ///
 /// Exposed so that integration tests (and embedders) can exercise the complete routing and
-/// handler stack without binding a TCP socket.
-pub fn build_router(optimizer_config: OptimizerConfig, limits: RequestLimits) -> Router {
+/// handler stack without binding a TCP socket. The [`LicenseGuard`] decides whether packing
+/// requests are unlimited (licensed) or restricted to the free tier.
+pub fn build_router(
+    optimizer_config: OptimizerConfig,
+    limits: RequestLimits,
+    license: Arc<LicenseGuard>,
+) -> Router {
     let cors = CorsLayer::new()
         .allow_methods(Any)
         .allow_origin(Any)
@@ -555,6 +634,7 @@ pub fn build_router(optimizer_config: OptimizerConfig, limits: RequestLimits) ->
     let state = ApiState {
         optimizer_config,
         limits,
+        license,
     };
 
     Router::new()
@@ -565,6 +645,7 @@ pub fn build_router(optimizer_config: OptimizerConfig, limits: RequestLimits) ->
         .route("/health", get(handle_health))
         .route("/version", get(handle_version))
         .route("/config", get(handle_config))
+        .route("/license", get(handle_license))
         // API documentation
         .route("/docs/openapi.json", get(serve_openapi_json))
         .route("/docs", get(serve_openapi_ui))
@@ -579,8 +660,12 @@ pub fn build_router(optimizer_config: OptimizerConfig, limits: RequestLimits) ->
 ///
 /// Configures CORS for cross-origin requests from the frontend.
 /// Blocks until the server is terminated.
-pub async fn start_api_server(config: ApiConfig, optimizer_config: OptimizerConfig) {
-    let app = build_router(optimizer_config, config.request_limits());
+pub async fn start_api_server(
+    config: ApiConfig,
+    optimizer_config: OptimizerConfig,
+    license: Arc<LicenseGuard>,
+) {
+    let app = build_router(optimizer_config, config.request_limits(), license);
 
     let addr = config.socket_addr();
     let listener = match tokio::net::TcpListener::bind(addr).await {
@@ -605,6 +690,7 @@ pub async fn start_api_server(config: ApiConfig, optimizer_config: OptimizerConf
     println!("   - GET /health");
     println!("   - GET /version");
     println!("   - GET /config");
+    println!("   - GET /license");
     println!("📑 Documentation:");
     println!("   - GET /docs");
     println!("   - GET /docs/openapi.json");
@@ -631,6 +717,11 @@ pub async fn start_api_server(config: ApiConfig, optimizer_config: OptimizerConf
     responses(
         (status = 200, description = "Successfully packed objects", body = PackResponse),
         (
+            status = PAYMENT_REQUIRED,
+            description = "Unlicensed instance has used all free packing operations",
+            body = ErrorResponse
+        ),
+        (
             status = UNPROCESSABLE_ENTITY,
             description = "Invalid request or container configuration",
             body = ErrorResponse
@@ -642,6 +733,11 @@ async fn handle_pack(
     State(state): State<ApiState>,
     payload: Result<Json<PackRequest>, JsonRejection>,
 ) -> impl IntoResponse {
+    // A locked instance answers every packing request with the license message only.
+    if state.license.is_locked() {
+        return license_required_response(&state.license);
+    }
+
     let request = match parse_json_body(payload) {
         Ok(request) => request,
         Err(response) => return *response,
@@ -653,21 +749,23 @@ async fn handle_pack(
         request.containers.len()
     );
 
-    match run_pack(
-        request,
-        state.optimizer_config.packing_config(),
-        state.limits,
-    ) {
-        Ok(response) => {
-            println!(
-                "📦 Result: {} containers, {} unpacked objects",
-                response.results.len(),
-                response.unplaced.len()
-            );
-            (StatusCode::OK, Json(response)).into_response()
-        }
-        Err(err) => pack_validation_response(err),
+    let validated = match request.into_validated(state.limits) {
+        Ok(validated) => validated,
+        Err(err) => return pack_validation_response(err),
+    };
+
+    // Only valid requests consume one of the free packing operations.
+    if state.license.acquire().is_err() {
+        return license_required_response(&state.license);
     }
+
+    let response = run_validated_pack(validated, state.optimizer_config.packing_config());
+    println!(
+        "📦 Result: {} containers, {} unpacked objects",
+        response.results.len(),
+        response.unplaced.len()
+    );
+    (StatusCode::OK, Json(response)).into_response()
 }
 
 /// Handler for POST /pack_stream endpoint (SSE).
@@ -686,6 +784,11 @@ async fn handle_pack(
             body = String
         ),
         (
+            status = PAYMENT_REQUIRED,
+            description = "Unlicensed instance has used all free packing operations",
+            body = ErrorResponse
+        ),
+        (
             status = UNPROCESSABLE_ENTITY,
             description = "Invalid request or container configuration",
             body = ErrorResponse
@@ -697,6 +800,10 @@ async fn handle_pack_stream(
     State(state): State<ApiState>,
     payload: Result<Json<PackRequest>, JsonRejection>,
 ) -> impl IntoResponse {
+    if state.license.is_locked() {
+        return license_required_response(&state.license);
+    }
+
     let request = match parse_json_body(payload) {
         Ok(request) => request,
         Err(response) => return *response,
@@ -706,6 +813,10 @@ async fn handle_pack_stream(
         Ok(validated) => validated,
         Err(err) => return pack_validation_response(err),
     };
+
+    if state.license.acquire().is_err() {
+        return license_required_response(&state.license);
+    }
 
     let (objects, container_blueprints, allow_rotations_override) = validated.into_parts();
 
@@ -822,6 +933,23 @@ async fn handle_config(State(state): State<ApiState>) -> impl IntoResponse {
     (StatusCode::OK, Json(response))
 }
 
+/// Handler for GET /license.
+///
+/// Reports whether the instance is licensed and, for unlicensed instances, how many free packing
+/// operations remain before packing requests are rejected with `402 Payment Required`.
+#[utoipa::path(
+    get,
+    path = "/license",
+    responses((status = 200, description = "License state of this instance", body = LicenseResponse)),
+    tag = "system"
+)]
+async fn handle_license(State(state): State<ApiState>) -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        Json(LicenseResponse::from_guard(&state.license)),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -830,7 +958,7 @@ mod tests {
     fn openapi_doc_lists_expected_paths() {
         let doc = openapi_doc();
         let paths = &doc.paths.paths;
-        for expected in ["/pack", "/pack_stream", "/health", "/version"] {
+        for expected in ["/pack", "/pack_stream", "/health", "/version", "/license"] {
             assert!(
                 paths.contains_key(expected),
                 "OpenAPI documentation is missing the {expected} path"
