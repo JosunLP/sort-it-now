@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-17
+
 ### Added
 
 - **Local license checks**: the instance verifies `SORT_IT_NOW_LICENSE_KEY` at startup against a compiled-in list of SHA-512 hashes (`src/license/hashes.rs`, initially 40 licenses) — no network access required, and no valid key is contained in the source or binary. Keys follow the format `SORTIT-<GUID v4>`.
@@ -9,10 +11,12 @@
 - **`GET /license`** endpoint reporting license state and remaining free packing operations (documented in OpenAPI).
 - **Web UI license notice**: shows the remaining free operations, and a locked notice with disabled pack buttons once the free tier is used up.
 - Maintainer tool `cargo run --example license_keygen -- generate|hash` to create keys and compute hashes for adding or revoking licenses.
+- New unit and integration tests for key format/verification, the free-tier guard (including concurrent access), and the `402` lock on both packing endpoints (**117 tests** total: 100 unit + 15 integration + 2 doc-tests).
 
 ### Changed
 
-- `api::build_router` and `api::start_api_server` take an `Arc<LicenseGuard>` parameter.
+- **Breaking for unlicensed deployments**: instances without a valid `SORT_IT_NOW_LICENSE_KEY` now stop packing after 10 operations per process run.
+- **Breaking for library embedders**: `api::build_router` and `api::start_api_server` take an additional `Arc<LicenseGuard>` parameter.
 
 ## [1.5.0] - 2026-07-03
 
