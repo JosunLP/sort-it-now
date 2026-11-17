@@ -1,10 +1,8 @@
-# Build stage
-FROM rust:1 AS builder
+# Build stage (Debian 13 "trixie", same release as the runtime image so glibc versions match)
+FROM rust:1-trixie AS builder
 
-# Install build dependencies
-RUN apt-get update && apt-get install -y \
-    pkg-config \
-    libssl-dev \
+# TLS uses rustls (no OpenSSL); only CA certificates are needed for the build environment.
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -24,12 +22,11 @@ COPY web ./web
 RUN cargo build --release
 
 # Runtime stage
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
-# Install runtime dependencies and curl for healthcheck
-RUN apt-get update && apt-get install -y \
+# Install runtime dependencies (CA certificates for TLS) and curl for the healthcheck
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
-    libssl3 \
     curl \
     && rm -rf /var/lib/apt/lists/*
 

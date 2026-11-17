@@ -1,14 +1,22 @@
-# Add labels to pull requests based on modified file paths
+# Add labels to pull requests based on modified file paths (actions/labeler v5+ format)
 rust:
-  - 'src/**/*.rs'
-  - 'Cargo.toml'
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src/**/*.rs'
+          - 'Cargo.toml'
 web:
-  - 'web/**'
+  - changed-files:
+      - any-glob-to-any-file: 'web/**'
 scripts:
-  - 'scripts/**'
+  - changed-files:
+      - any-glob-to-any-file: 'scripts/**'
 config:
-  - '.github/workflows/**'
-  - 'package.json'
+  - changed-files:
+      - any-glob-to-any-file:
+          - '.github/workflows/**'
+          - 'package.json'
 documentation:
-  - 'README.md'
-  - 'CONCEPT.md'
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'README.md'
+          - 'CONCEPT.md'

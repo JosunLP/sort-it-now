@@ -28,12 +28,12 @@ jobs:
             label: macOS ARM64 (Apple Silicon)
             artifact_suffix: macos-arm64
             archive_extension: tar.gz
-          - os: macos-15
+          - os: macos-15-intel
             label: macOS x86_64 (Intel)
             artifact_suffix: macos-x86_64
             archive_extension: tar.gz
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -302,7 +302,7 @@ jobs:
           Get-FileHash -Path $msixPath -Algorithm SHA256 | Select-Object -ExpandProperty Hash | Out-File -FilePath "$msixPath.sha256" -Encoding ASCII
 
       - name: Upload archive artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: sort-it-now-${{ steps.meta.outputs.version }}-${{ matrix.artifact_suffix }}
           path: |
@@ -311,7 +311,7 @@ jobs:
 
       - name: Upload Linux installer artifact
         if: matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: sort-it-now-${{ steps.meta.outputs.version }}-${{ matrix.artifact_suffix }}-native
           path: |
@@ -320,7 +320,7 @@ jobs:
 
       - name: Upload macOS installer artifact
         if: startsWith(matrix.os, 'macos')
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: sort-it-now-${{ steps.meta.outputs.version }}-${{ matrix.artifact_suffix }}-native
           path: |
@@ -329,7 +329,7 @@ jobs:
 
       - name: Upload Windows installer artifact
         if: matrix.os == 'windows-latest'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: sort-it-now-${{ steps.meta.outputs.version }}-${{ matrix.artifact_suffix }}-native
           path: |
@@ -343,12 +343,12 @@ jobs:
     needs: build
     if: startsWith(github.ref, 'refs/tags/')
     steps:
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           path: dist
 
       - name: Publish release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         with:
           files: dist/**/*
           tag_name: ${{ github.ref_name }}

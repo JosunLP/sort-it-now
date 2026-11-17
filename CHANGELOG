@@ -17,6 +17,13 @@
 
 - **Breaking for unlicensed deployments**: instances without a valid `SORT_IT_NOW_LICENSE_KEY` now stop packing after 10 operations per process run.
 - **Breaking for library embedders**: `api::build_router` and `api::start_api_server` take an additional `Arc<LicenseGuard>` parameter.
+- **Dependencies updated to their latest releases**, including the major upgrades `reqwest` 0.13 (TLS via rustls with the platform certificate verifier), `tower-http` 0.7, `utoipa` 6, `zip` 9, `sha2` 0.11, and `winreg` 0.56. The binary no longer links against OpenSSL.
+- **Docker image**: build and runtime stages now use Debian 13 "trixie" (`rust:1-trixie`, `debian:trixie-slim`) so the glibc versions match; OpenSSL packages were dropped from both stages.
+- **CI/CD pipelines**: all GitHub Actions bumped to their current major versions (`checkout` v7, `upload-artifact` v7, `download-artifact` v8, `action-gh-release` v3, Docker actions v4/v6/v7, `trivy-action` 0.36, `codeql-action/upload-sarif` v4, `labeler` v7, `stale` v11, `ai-inference` v3). `.github/labeler.yml` migrated to the labeler v5+ configuration format.
+
+### Fixed
+
+- **Release pipeline**: the "macOS x86_64 (Intel)" artifact was built on the ARM-based `macos-15` runner and therefore contained an ARM64 binary; it is now built on `macos-15-intel`.
 
 ## [1.5.0] - 2026-07-03
 
